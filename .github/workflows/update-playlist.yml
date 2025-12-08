@@ -36,81 +36,96 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openvpn
 
-      - name: Fetch Vietnam VPN config from VPN Gate
+      - name: Fetch Vietnam VPN servers from VPN Gate
         run: |
           echo "Fetching Vietnam VPN servers from VPN Gate..."
 
           # Get VPN Gate server list and find Vietnam servers
           # Use tr to remove carriage returns that break base64
-          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -3 > /tmp/vn_servers.txt
+          # Get top 10 servers sorted by score (most reliable first)
+          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -10 > /tmp/vn_servers.txt
 
           if [ ! -s /tmp/vn_servers.txt ]; then
             echo "No Vietnam VPN servers found!"
             exit 1
           fi
 
-          echo "Found $(wc -l < /tmp/vn_servers.txt) Vietnam servers"
+          echo "Found $(wc -l < /tmp/vn_servers.txt) Vietnam VPN servers to try"
+          cat /tmp/vn_servers.txt | awk -F',' '{print "  - " $1 " (" $2 ")"}'
 
-          # Try each server until one works
-          success=false
+      - name: Connect to Vietnam VPN
+        run: |
+          # Try connecting to VPN servers until one works
+          server_num=0
+          connected=false
+
           while IFS=',' read -r line; do
-            # Extract the last field (OpenVPN config in base64)
+            server_num=$((server_num + 1))
+
+            # Extract server info
             ovpn_base64=$(echo "$line" | awk -F',' '{print $NF}')
             hostname=$(echo "$line" | awk -F',' '{print $1}')
             ip=$(echo "$line" | awk -F',' '{print $2}')
 
-            if [ -n "$ovpn_base64" ] && [ ${#ovpn_base64} -gt 100 ]; then
-              echo "Trying VPN server: $hostname ($ip)"
+            if [ -z "$ovpn_base64" ] || [ ${#ovpn_base64} -lt 100 ]; then
+              continue
+            fi
 
-              # Decode base64 config
-              echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn 2>/dev/null
+            echo ""
+            echo "=== Trying VPN server $server_num: $hostname ($ip) ==="
 
-              if [ -s /tmp/vpn.ovpn ] && grep -q "remote" /tmp/vpn.ovpn; then
-                echo "VPN config created successfully"
+            # Decode and prepare config
+            echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn 2>/dev/null
+            if [ ! -s /tmp/vpn.ovpn ]; then
+              echo "Failed to decode config, skipping..."
+              continue
+            fi
 
-                # Add auth info for VPN Gate (uses vpn/vpn credentials)
-                echo "" >> /tmp/vpn.ovpn
-                echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
-                printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
+            # Add auth
+            echo "" >> /tmp/vpn.ovpn
+            echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
+            printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
 
-                head -30 /tmp/vpn.ovpn
-                success=true
+            # Kill any existing VPN
+            sudo killall openvpn 2>/dev/null || true
+            sleep 1
+
+            # Start VPN
+            echo "Starting OpenVPN..."
+            sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
+
+            # Wait for connection (max 30 seconds per server)
+            for i in {1..15}; do
+              sleep 2
+              if ip addr show tun0 2>/dev/null | grep -q "inet "; then
+                echo "VPN connected successfully!"
+                ip addr show tun0
+                connected=true
                 break
-              else
-                echo "Failed to decode config for $hostname, trying next..."
               fi
+
+              # Check for fatal errors
+              if grep -q "AUTH_FAILED\|Connection refused\|TLS Error\|SIGTERM" /tmp/vpn.log 2>/dev/null; then
+                echo "Connection failed, trying next server..."
+                cat /tmp/vpn.log | tail -20
+                break
+              fi
+              echo "Waiting... ($i/15)"
+            done
+
+            if [ "$connected" = "true" ]; then
+              break
             fi
           done < /tmp/vn_servers.txt
 
-          if [ "$success" != "true" ]; then
-            echo "Failed to get any valid VPN config!"
+          if [ "$connected" != "true" ]; then
+            echo "Failed to connect to any VPN server!"
+            cat /tmp/vpn.log 2>/dev/null || true
             exit 1
           fi
 
-      - name: Connect to Vietnam VPN
-        run: |
-          echo "Connecting to Vietnam VPN..."
-          sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
-
-          # Wait for VPN connection (max 60 seconds)
-          for i in {1..30}; do
-            sleep 2
-            if ip addr show tun0 2>/dev/null | grep -q "inet "; then
-              echo "VPN connected! (attempt $i)"
-              ip addr show tun0
-              break
-            fi
-            echo "Waiting for VPN connection... (attempt $i)"
-
-            # Check for errors
-            if grep -q "AUTH_FAILED\|Connection refused\|TLS Error" /tmp/vpn.log 2>/dev/null; then
-              echo "VPN connection failed. Log:"
-              cat /tmp/vpn.log
-              exit 1
-            fi
-          done
-
           # Verify we have a Vietnam IP
+          echo ""
           echo "Checking IP location..."
           curl -s https://ipinfo.io/json || true
 
