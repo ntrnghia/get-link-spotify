@@ -3,7 +3,7 @@ name: Update ZingMP3 Playlist
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour at minute 0
+    - cron: '*/30 * * * *'  # Every 30 minutes
   workflow_dispatch:  # Manual trigger from GitHub UI
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
           echo "Fetching Vietnam proxies from proxyscrape API..."
 
           # Fetch fresh Vietnam proxies from proxyscrape API (remove Windows line endings)
-          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=vn" 2>/dev/null | tr -d '\r') || true
+          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=https&timeout=10000&country=vn" 2>/dev/null | tr -d '\r') || true
 
           if [ -z "$proxies" ]; then
             echo "ERROR: Failed to fetch proxy list from API"
