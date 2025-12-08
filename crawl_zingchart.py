@@ -835,7 +835,7 @@ def main():
     # Update Spotify playlist if requested
     if args.playlist:
         print(f"\n[4/4] Updating Spotify playlist...")
-        playlist_id, is_new = create_or_get_playlist(sp, args.playlist_name, chart_url)
+        playlist_id, is_new = create_or_get_playlist(sp, args.playlist_name, args.chart_url)
         if is_new:
             print(f"  Created new playlist: '{args.playlist_name}'")
         else:
