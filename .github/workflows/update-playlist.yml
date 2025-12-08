@@ -39,8 +39,8 @@ jobs:
         run: |
           echo "Fetching Vietnam proxies from proxyscrape API..."
 
-          # Fetch fresh Vietnam proxies from proxyscrape API (remove Windows line endings)
-          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=https&timeout=10000&country=vn" 2>/dev/null | tr -d '\r') || true
+          # Fetch fresh Vietnam proxies from proxyscrape API v4 (remove Windows line endings)
+          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v4/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=vn&ssl=all&anonymity=all&skip=0&limit=100" 2>/dev/null | tr -d '\r') || true
 
           if [ -z "$proxies" ]; then
             echo "ERROR: Failed to fetch proxy list from API"
