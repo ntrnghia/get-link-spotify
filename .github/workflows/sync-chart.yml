@@ -88,21 +88,16 @@ jobs:
             exit 1
           fi
 
-          echo "Got $(echo "$proxies" | wc -l) proxies from API"
+          total=$(echo "$proxies" | wc -l)
+          echo "Got $total proxies from API"
           echo ""
 
           success=false
           count=0
-          max_attempts=20
 
           for proxy in $proxies; do
             count=$((count + 1))
-            if [ $count -gt $max_attempts ]; then
-              echo "Reached max attempts ($max_attempts)"
-              break
-            fi
-
-            echo "[$count/$max_attempts] Trying proxy $proxy..."
+            echo "[$count/$total] Trying proxy $proxy..."
 
             # Retry up to 3 times for partial data
             for retry in 1 2 3; do
