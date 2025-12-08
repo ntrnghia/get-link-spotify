@@ -41,31 +41,51 @@ jobs:
           echo "Fetching Vietnam VPN servers from VPN Gate..."
 
           # Get VPN Gate server list and find Vietnam servers
-          curl -s "https://www.vpngate.net/api/iphone/" | grep ",VN," | head -3 > /tmp/vn_servers.txt
+          # Use tr to remove carriage returns that break base64
+          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -3 > /tmp/vn_servers.txt
 
           if [ ! -s /tmp/vn_servers.txt ]; then
             echo "No Vietnam VPN servers found!"
             exit 1
           fi
 
-          # Extract OpenVPN config from first available server
-          while IFS=',' read -r hostname ip score ping speed country code sessions uptime users traffic logtype operator message ovpn_base64; do
-            if [ -n "$ovpn_base64" ]; then
-              echo "Using VPN server: $hostname ($ip)"
-              echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn
+          echo "Found $(wc -l < /tmp/vn_servers.txt) Vietnam servers"
 
-              # Add auth info for VPN Gate (uses vpn/vpn credentials)
-              echo -e "\nauth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
-              echo -e "vpn\nvpn" > /tmp/vpn_auth.txt
+          # Try each server until one works
+          success=false
+          while IFS=',' read -r line; do
+            # Extract the last field (OpenVPN config in base64)
+            ovpn_base64=$(echo "$line" | awk -F',' '{print $NF}')
+            hostname=$(echo "$line" | awk -F',' '{print $1}')
+            ip=$(echo "$line" | awk -F',' '{print $2}')
 
-              # Verify config was created
-              if [ -s /tmp/vpn.ovpn ]; then
+            if [ -n "$ovpn_base64" ] && [ ${#ovpn_base64} -gt 100 ]; then
+              echo "Trying VPN server: $hostname ($ip)"
+
+              # Decode base64 config
+              echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn 2>/dev/null
+
+              if [ -s /tmp/vpn.ovpn ] && grep -q "remote" /tmp/vpn.ovpn; then
                 echo "VPN config created successfully"
-                head -20 /tmp/vpn.ovpn
+
+                # Add auth info for VPN Gate (uses vpn/vpn credentials)
+                echo "" >> /tmp/vpn.ovpn
+                echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
+                printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
+
+                head -30 /tmp/vpn.ovpn
+                success=true
                 break
+              else
+                echo "Failed to decode config for $hostname, trying next..."
               fi
             fi
           done < /tmp/vn_servers.txt
+
+          if [ "$success" != "true" ]; then
+            echo "Failed to get any valid VPN config!"
+            exit 1
+          fi
 
       - name: Connect to Vietnam VPN
         run: |
