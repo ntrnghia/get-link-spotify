@@ -39,19 +39,37 @@ jobs:
       - name: Fetch Vietnam VPN servers from VPN Gate
         run: |
           echo "Fetching Vietnam VPN servers from VPN Gate..."
+          echo ""
+
+          # Show all available servers for debugging
+          echo "All available servers from VPN Gate:"
+          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | head -5
 
           # Get VPN Gate server list and find Vietnam servers
           # Use tr to remove carriage returns that break base64
-          # Get top 10 servers sorted by score (most reliable first)
-          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -20 > /tmp/vn_servers.txt
+          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," > /tmp/vn_servers_all.txt
+
+          echo ""
+          echo "Total Vietnam servers available: $(wc -l < /tmp/vn_servers_all.txt)"
+
+          # Take first 20 servers
+          head -20 /tmp/vn_servers_all.txt > /tmp/vn_servers.txt
 
           if [ ! -s /tmp/vn_servers.txt ]; then
             echo "No Vietnam VPN servers found!"
+            echo ""
+            echo "Trying alternative: servers from nearby countries (Thailand, Singapore)..."
+            curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep -E ",TH,|,SG," | head -10 > /tmp/vn_servers.txt
+          fi
+
+          if [ ! -s /tmp/vn_servers.txt ]; then
+            echo "No suitable VPN servers found at all!"
             exit 1
           fi
 
-          echo "Found $(wc -l < /tmp/vn_servers.txt) Vietnam VPN servers to try"
-          cat /tmp/vn_servers.txt | awk -F',' '{print "  - " $1 " (" $2 ")"}'
+          echo ""
+          echo "Found $(wc -l < /tmp/vn_servers.txt) VPN servers to try:"
+          cat /tmp/vn_servers.txt | awk -F',' '{print "  - " $1 " (" $2 ") Country: " $6}'
 
       - name: Connect to Vietnam VPN
         run: |
@@ -86,11 +104,16 @@ jobs:
               continue
             fi
 
+            # Show config info
+            echo "Config info:"
+            grep -E "^(remote|proto|cipher)" /tmp/vpn.ovpn | head -5
+
             # Add auth and connection tweaks
             echo "" >> /tmp/vpn.ovpn
             echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
             echo "connect-timeout 10" >> /tmp/vpn.ovpn
             echo "connect-retry-max 1" >> /tmp/vpn.ovpn
+            echo "resolv-retry 1" >> /tmp/vpn.ovpn
             printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
 
             # Kill any existing VPN
