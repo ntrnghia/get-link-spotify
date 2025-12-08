@@ -62,7 +62,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fetch ${{ inputs.chart_name }} via Vietnam proxy
+      - name: Check chart type
+        id: chart-type
+        run: |
+          if echo "${{ inputs.chart_url }}" | grep -q "zing-chart-tuan"; then
+            echo "is_weekly=true" >> $GITHUB_OUTPUT
+            echo "Chart type: Weekly (will use API mode)"
+          else
+            echo "is_weekly=false" >> $GITHUB_OUTPUT
+            echo "Chart type: Regular (will use HTML mode)"
+          fi
+
+      - name: Fetch ${{ inputs.chart_name }} via Vietnam proxy (HTML mode)
+        if: steps.chart-type.outputs.is_weekly != 'true'
         run: |
           echo "Fetching ${{ inputs.chart_name }} via Vietnam proxies..."
           echo "URL: ${{ inputs.chart_url }}"
@@ -124,13 +136,29 @@ jobs:
             exit 1
           fi
 
-      - name: Run ZingChart crawler
+      - name: Run ZingChart crawler (HTML mode)
+        if: steps.chart-type.outputs.is_weekly != 'true'
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
         run: |
           python crawl_zingchart.py \
+            --playlist \
+            --headless \
+            --chart-url "${{ inputs.chart_url }}" \
+            --playlist-name "${{ inputs.playlist_name }}" \
+            --output-csv "${{ inputs.output_csv }}"
+
+      - name: Run ZingChart crawler (API mode for weekly charts)
+        if: steps.chart-type.outputs.is_weekly == 'true'
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
+        run: |
+          python crawl_zingchart.py \
+            --live \
             --playlist \
             --headless \
             --chart-url "${{ inputs.chart_url }}" \
