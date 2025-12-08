@@ -9,7 +9,7 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -31,156 +31,74 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install OpenVPN
+      - name: Find working Vietnam proxy
+        id: proxy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openvpn
+          echo "Testing Vietnam proxies for ZingMP3 access..."
 
-      - name: Fetch Vietnam VPN servers from VPN Gate
-        run: |
-          echo "Fetching Vietnam VPN servers from VPN Gate..."
-          echo ""
+          # Known working proxies (tested)
+          PROXIES=(
+            "113.177.204.26:8080"
+            "14.225.240.23:8562"
+            "171.253.59.195:8080"
+          )
 
-          # Show all available servers for debugging
-          echo "All available servers from VPN Gate:"
-          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | head -5
-
-          # Get VPN Gate server list and find Vietnam servers
-          # Use tr to remove carriage returns that break base64
-          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," > /tmp/vn_servers_all.txt
-
-          echo ""
-          echo "Total Vietnam servers available: $(wc -l < /tmp/vn_servers_all.txt)"
-
-          # Take first 20 servers
-          head -20 /tmp/vn_servers_all.txt > /tmp/vn_servers.txt
-
-          if [ ! -s /tmp/vn_servers.txt ]; then
-            echo "No Vietnam VPN servers found!"
-            echo ""
-            echo "Trying alternative: servers from nearby countries (Thailand, Singapore)..."
-            curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep -E ",TH,|,SG," | head -10 > /tmp/vn_servers.txt
-          fi
-
-          if [ ! -s /tmp/vn_servers.txt ]; then
-            echo "No suitable VPN servers found at all!"
-            exit 1
-          fi
-
-          echo ""
-          echo "Found $(wc -l < /tmp/vn_servers.txt) VPN servers to try:"
-          cat /tmp/vn_servers.txt | awk -F',' '{print "  - " $1 " (" $2 ") Country: " $6}'
-
-      - name: Connect to Vietnam VPN
-        run: |
-          # Try connecting to VPN servers until one works AND gives Vietnam IP
-          server_num=0
-          vietnam_connected=false
-          max_servers=15  # Try up to 15 servers
-
-          while IFS=',' read -r line; do
-            server_num=$((server_num + 1))
-            if [ $server_num -gt $max_servers ]; then
-              echo "Reached max server limit ($max_servers)"
-              break
-            fi
-
-            # Extract server info
-            ovpn_base64=$(echo "$line" | awk -F',' '{print $NF}')
-            hostname=$(echo "$line" | awk -F',' '{print $1}')
-            ip=$(echo "$line" | awk -F',' '{print $2}')
-
-            if [ -z "$ovpn_base64" ] || [ ${#ovpn_base64} -lt 100 ]; then
-              continue
-            fi
-
-            echo ""
-            echo "=== Trying VPN server $server_num: $hostname ($ip) ==="
-
-            # Decode and prepare config
-            echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn 2>/dev/null
-            if [ ! -s /tmp/vpn.ovpn ]; then
-              echo "Failed to decode config, skipping..."
-              continue
-            fi
-
-            # Show config info
-            echo "Config info:"
-            grep -E "^(remote|proto|cipher)" /tmp/vpn.ovpn | head -5
-
-            # Add auth and connection tweaks
-            echo "" >> /tmp/vpn.ovpn
-            echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
-            echo "connect-timeout 10" >> /tmp/vpn.ovpn
-            echo "connect-retry-max 1" >> /tmp/vpn.ovpn
-            echo "resolv-retry 1" >> /tmp/vpn.ovpn
-            printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
-
-            # Kill any existing VPN
-            sudo killall openvpn 2>/dev/null || true
-            sleep 1
-
-            # Start VPN
-            echo "Starting OpenVPN..."
-            sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
-
-            # Wait for tun0 interface (max 20 seconds per server - reduced for faster retry)
-            tun_up=false
-            for i in {1..10}; do
-              sleep 2
-              if ip addr show tun0 2>/dev/null | grep -q "inet "; then
-                echo "VPN tunnel established!"
-                tun_up=true
-                break
-              fi
-
-              # Check for fatal errors (expanded list)
-              if grep -qE "AUTH_FAILED|Connection refused|TLS Error|SIGTERM|Connection timed out|No route to host|Network is unreachable" /tmp/vpn.log 2>/dev/null; then
-                echo "Connection error detected:"
-                tail -5 /tmp/vpn.log 2>/dev/null || true
-                break
-              fi
-              echo "Waiting for tunnel... ($i/10)"
-            done
-
-            if [ "$tun_up" != "true" ]; then
-              echo "Tunnel not established. VPN log:"
-              tail -10 /tmp/vpn.log 2>/dev/null || true
-              continue
-            fi
-
-            # Verify we actually have a Vietnam IP
-            sleep 2  # Let routing stabilize
-            echo "Verifying IP location..."
-            ip_info=$(curl -s --max-time 10 https://ipinfo.io/json)
-            echo "$ip_info"
-
-            country=$(echo "$ip_info" | grep -o '"country": *"[^"]*"' | cut -d'"' -f4)
-            if [ "$country" = "VN" ]; then
-              echo "SUCCESS: Got Vietnam IP!"
-              vietnam_connected=true
+          working_proxy=""
+          for proxy in "${PROXIES[@]}"; do
+            echo "Testing $proxy..."
+            result=$(curl -s --compressed --proxy "http://$proxy" --max-time 10 "https://zingmp3.vn/zing-chart" 2>&1 | grep -c "MusicPlaylist" || echo "0")
+            if [ "$result" -gt 0 ]; then
+              echo "SUCCESS: $proxy returns chart data!"
+              working_proxy="$proxy"
               break
             else
-              echo "WARNING: Got $country IP instead of VN, trying next server..."
-              sudo killall openvpn 2>/dev/null || true
+              echo "FAIL: $proxy"
             fi
-          done < /tmp/vn_servers.txt
+          done
 
-          if [ "$vietnam_connected" != "true" ]; then
+          # If no known proxy works, try fetching fresh ones
+          if [ -z "$working_proxy" ]; then
             echo ""
-            echo "FAILED: Could not get Vietnam IP from any server!"
-            echo "Final VPN log:"
-            cat /tmp/vpn.log 2>/dev/null || true
+            echo "Known proxies failed. Fetching fresh proxies from freeproxy.world..."
+
+            # Fetch proxy list
+            fresh_proxies=$(curl -s --max-time 15 "https://www.freeproxy.world/?type=&anonymity=&country=VN&speed=&port=&page=1" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -10)
+
+            for proxy in $fresh_proxies; do
+              echo "Testing fresh proxy $proxy..."
+              result=$(curl -s --compressed --proxy "http://$proxy" --max-time 8 "https://zingmp3.vn/zing-chart" 2>&1 | grep -c "MusicPlaylist" || echo "0")
+              if [ "$result" -gt 0 ]; then
+                echo "SUCCESS: $proxy returns chart data!"
+                working_proxy="$proxy"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$working_proxy" ]; then
+            echo ""
+            echo "ERROR: No working proxy found!"
             exit 1
           fi
 
-      - name: Test ZingMP3 access
+          echo ""
+          echo "Using proxy: $working_proxy"
+          echo "proxy=$working_proxy" >> $GITHUB_OUTPUT
+
+      - name: Fetch ZingChart via proxy
         run: |
-          echo "Testing access to zingmp3.vn..."
-          response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://zingmp3.vn/zing-chart")
-          echo "HTTP Status: $response"
-          if [ "$response" != "200" ]; then
-            echo "Warning: ZingMP3 returned status $response"
+          echo "Fetching ZingMP3 chart via proxy ${{ steps.proxy.outputs.proxy }}..."
+          curl -s --compressed --proxy "http://${{ steps.proxy.outputs.proxy }}" --max-time 30 "https://zingmp3.vn/zing-chart" > chart_live.html
+
+          # Verify we got chart data
+          if grep -q "MusicPlaylist" chart_live.html; then
+            echo "SUCCESS: Got chart data ($(wc -c < chart_live.html) bytes)"
+            # Show first few song names
+            grep -o '"name":"[^"]*"' chart_live.html | head -5
+          else
+            echo "ERROR: No chart data in response"
+            head -500 chart_live.html
+            exit 1
           fi
 
       - name: Run ZingChart crawler
@@ -188,13 +106,7 @@ jobs:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
-        run: python crawl_zingchart.py --vpn --playlist --headless
-
-      - name: Disconnect VPN
-        if: always()
-        run: |
-          sudo killall openvpn 2>/dev/null || true
-          echo "VPN disconnected"
+        run: python crawl_zingchart.py --playlist --headless
 
       - name: Upload CSV artifact
         uses: actions/upload-artifact@v4
@@ -203,18 +115,4 @@ jobs:
           name: zingchart-results
           path: zingchart_spotify.csv
           retention-days: 7
-
-      - name: Copy VPN log for artifact upload
-        if: failure()
-        run: |
-          sudo cp /tmp/vpn.log ./vpn-debug.log 2>/dev/null || echo "No VPN log to copy"
-          sudo chmod 644 ./vpn-debug.log 2>/dev/null || true
-
-      - name: Upload VPN log on failure
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: vpn-log
-          path: vpn-debug.log
-          retention-days: 3
           if-no-files-found: ignore

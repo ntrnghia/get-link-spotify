@@ -542,13 +542,18 @@ def main():
         print(f"\n[1/3] Parsing live HTML content...")
         songs = parse_chart_content(html_content)
     else:
-        # Use local file
-        if not html_file.exists():
-            print(f"ERROR: No local chart.html found. Cannot continue.")
+        # Use local file - check for chart_live.html first (from proxy fetch), then chart.html
+        chart_live_file = script_dir / 'chart_live.html'
+        if chart_live_file.exists():
+            print(f"\n[1/3] Parsing {chart_live_file} (fetched via proxy)...")
+            songs = parse_chart_file(str(chart_live_file))
+        elif html_file.exists():
+            print(f"\n[1/3] Parsing {html_file}...")
+            songs = parse_chart_file(str(html_file))
+        else:
+            print(f"ERROR: No chart HTML found (checked chart_live.html and chart.html). Cannot continue.")
             import sys
             sys.exit(1)
-        print(f"\n[1/3] Parsing {html_file}...")
-        songs = parse_chart_file(str(html_file))
 
     print(f"Found {len(songs)} songs")
 
