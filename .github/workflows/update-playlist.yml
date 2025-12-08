@@ -15,11 +15,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Python (latest)
+      - name: Get latest Python version
+        id: python-version
+        run: |
+          # Fetch latest stable Python version from GitHub API (exclude alpha/beta/rc)
+          PYTHON_VER=$(curl -s https://api.github.com/repos/python/cpython/tags | \
+            grep -Po '"name": "v\K[0-9.]+(?=")' | \
+            grep -v -E 'a|b|rc' | \
+            head -1)
+          echo "version=$PYTHON_VER" >> $GITHUB_OUTPUT
+          echo "Latest stable Python: $PYTHON_VER"
+
+      - name: Set up Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v6
         with:
-          python-version-file: '.python-version'
-          cache: 'pip'  # Built-in pip caching
+          python-version: ${{ steps.python-version.outputs.version }}
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
