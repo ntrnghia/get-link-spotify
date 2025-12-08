@@ -31,10 +31,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Find working Vietnam proxy
-        id: proxy
+      - name: Fetch ZingChart via Vietnam proxy
         run: |
-          echo "Testing Vietnam proxies for ZingMP3 access..."
+          echo "Fetching ZingMP3 chart via Vietnam proxies..."
 
           # Known working proxies (tested)
           PROXIES=(
@@ -43,61 +42,50 @@ jobs:
             "171.253.59.195:8080"
           )
 
-          working_proxy=""
+          success=false
           for proxy in "${PROXIES[@]}"; do
-            echo "Testing $proxy..."
-            result=$(curl -s --compressed --proxy "http://$proxy" --max-time 10 "https://zingmp3.vn/zing-chart" 2>&1 | grep -c "MusicPlaylist" || echo "0")
-            if [ "$result" -gt 0 ]; then
-              echo "SUCCESS: $proxy returns chart data!"
-              working_proxy="$proxy"
+            echo ""
+            echo "Trying proxy $proxy..."
+
+            # Fetch and save directly
+            curl -s --compressed --proxy "http://$proxy" --max-time 20 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null
+
+            # Check if we got chart data
+            if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
+              echo "SUCCESS: Got chart data from $proxy ($(wc -c < chart_live.html) bytes)"
+              grep -o '"name":"[^"]*"' chart_live.html | head -3
+              success=true
               break
             else
-              echo "FAIL: $proxy"
+              echo "FAIL: No chart data from $proxy"
+              rm -f chart_live.html
             fi
           done
 
-          # If no known proxy works, try fetching fresh ones
-          if [ -z "$working_proxy" ]; then
+          # If known proxies fail, try fetching fresh ones
+          if [ "$success" != "true" ]; then
             echo ""
-            echo "Known proxies failed. Fetching fresh proxies from freeproxy.world..."
+            echo "Known proxies failed. Trying fresh proxies from freeproxy.world..."
 
-            # Fetch proxy list
             fresh_proxies=$(curl -s --max-time 15 "https://www.freeproxy.world/?type=&anonymity=&country=VN&speed=&port=&page=1" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -10)
 
             for proxy in $fresh_proxies; do
-              echo "Testing fresh proxy $proxy..."
-              result=$(curl -s --compressed --proxy "http://$proxy" --max-time 8 "https://zingmp3.vn/zing-chart" 2>&1 | grep -c "MusicPlaylist" || echo "0")
-              if [ "$result" -gt 0 ]; then
-                echo "SUCCESS: $proxy returns chart data!"
-                working_proxy="$proxy"
+              echo "Trying fresh proxy $proxy..."
+              curl -s --compressed --proxy "http://$proxy" --max-time 15 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null
+
+              if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
+                echo "SUCCESS: Got chart data from $proxy"
+                success=true
                 break
+              else
+                rm -f chart_live.html
               fi
             done
           fi
 
-          if [ -z "$working_proxy" ]; then
+          if [ "$success" != "true" ]; then
             echo ""
             echo "ERROR: No working proxy found!"
-            exit 1
-          fi
-
-          echo ""
-          echo "Using proxy: $working_proxy"
-          echo "proxy=$working_proxy" >> $GITHUB_OUTPUT
-
-      - name: Fetch ZingChart via proxy
-        run: |
-          echo "Fetching ZingMP3 chart via proxy ${{ steps.proxy.outputs.proxy }}..."
-          curl -s --compressed --proxy "http://${{ steps.proxy.outputs.proxy }}" --max-time 30 "https://zingmp3.vn/zing-chart" > chart_live.html
-
-          # Verify we got chart data
-          if grep -q "MusicPlaylist" chart_live.html; then
-            echo "SUCCESS: Got chart data ($(wc -c < chart_live.html) bytes)"
-            # Show first few song names
-            grep -o '"name":"[^"]*"' chart_live.html | head -5
-          else
-            echo "ERROR: No chart data in response"
-            head -500 chart_live.html
             exit 1
           fi
 
