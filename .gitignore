@@ -1,0 +1,35 @@
+# Virtual environment
+env/
+venv/
+.venv/
+
+# Spotify cache (contains tokens)
+.cache
+
+# Environment variables (contains secrets)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Output files (regenerated each run)
+zingchart_spotify.csv
+chart_live.html
+chart.html
+chart_files/
+
+# VPN config files
+*.ovpn
+
+# OS
+.DS_Store
+Thumbs.db
