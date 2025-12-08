@@ -59,8 +59,9 @@ jobs:
 
             echo "[$count/$max_attempts] Trying proxy $proxy..."
 
-            # Fetch with timeout and retry (|| true to ignore curl errors)
-            curl -s --compressed --proxy "http://$proxy" --max-time 20 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null || true
+            # Fetch with timeout (show errors to debug)
+            curl_result=$(curl -s --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 -w "%{http_code}" "https://zingmp3.vn/zing-chart" -o chart_live.html 2>&1) || true
+            echo "  curl result: $curl_result"
 
             # Check if we got chart data
             if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
