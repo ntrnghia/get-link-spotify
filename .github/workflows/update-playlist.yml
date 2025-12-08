@@ -35,8 +35,8 @@ jobs:
         run: |
           echo "Fetching Vietnam proxies from proxyscrape API..."
 
-          # Fetch fresh Vietnam proxies from proxyscrape API
-          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=vn" 2>/dev/null) || true
+          # Fetch fresh Vietnam proxies from proxyscrape API (remove Windows line endings)
+          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=vn" 2>/dev/null | tr -d '\r') || true
 
           if [ -z "$proxies" ]; then
             echo "ERROR: Failed to fetch proxy list from API"
@@ -48,7 +48,7 @@ jobs:
 
           success=false
           count=0
-          max_attempts=5  # Reduced for debugging
+          max_attempts=20
 
           for proxy in $proxies; do
             count=$((count + 1))
@@ -59,8 +59,8 @@ jobs:
 
             echo "[$count/$max_attempts] Trying proxy $proxy..."
 
-            # Fetch with timeout - capture both output and stderr
-            curl -v --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>&1 | head -20 || true
+            # Fetch with timeout
+            curl -s --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null || true
 
             # Check if we got chart data
             if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
