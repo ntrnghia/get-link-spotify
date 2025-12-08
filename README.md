@@ -14,9 +14,9 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 | Playlist | Songs | Schedule | Link |
 |----------|-------|----------|------|
 | ZingMP3 Top 100 | 100 | Every 30 minutes | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
-| ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | Coming soon |
-| ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | Coming soon |
-| ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | Coming soon |
+| ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
+| ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
+| ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
 
 ## Supported Charts
 
@@ -94,10 +94,12 @@ python crawl_zingchart.py --live --playlist \
 ### How It Works
 
 1. Fetches latest stable Python version from GitHub API
-2. Gets Vietnam proxy list from proxyscrape API v4
-3. Tries proxies until one successfully fetches ZingMP3 chart
+2. Gets Vietnam proxy list from ProxyScrape API
+3. Tries proxies until one successfully fetches ZingMP3 chart:
+   - **Top 100**: Parses JSON-LD from desktop site HTML
+   - **Weekly charts**: Parses mobile site (`m.zingmp3.vn`) which has server-side rendered data
 4. Retries up to 3 times per proxy for partial data
-5. Parses chart and finds matching Spotify tracks
+5. Searches Spotify for matching tracks
 6. Updates the Spotify playlist
 
 ### Setup Secrets
