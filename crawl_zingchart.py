@@ -5,6 +5,8 @@ Parses top 100 songs from chart.html or fetches live from zingmp3.vn using Vietn
 
 import argparse
 import json
+import hashlib
+import hmac
 import os
 import re
 import csv
@@ -55,6 +57,102 @@ HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
 }
+
+# ZingMP3 API credentials (for weekly charts that require API access)
+ZINGMP3_API_KEY = 'X5BM3w8N7MKozC0B85o4KMlzLZKhV00y'
+ZINGMP3_SECRET_KEY = 'acOrvUS15XRW2o9JksiK1KgQ6Vbds8ZW'
+ZINGMP3_API_VERSION = '1.17.3'
+
+
+def is_weekly_chart_url(url: str) -> bool:
+    """Check if URL is a weekly chart (requires API access)."""
+    return 'zing-chart-tuan' in url
+
+
+def extract_chart_id(url: str) -> str | None:
+    """Extract chart ID from ZingMP3 weekly chart URL.
+
+    Example: https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html -> IWZ9Z08I
+    """
+    match = re.search(r'/([A-Z0-9]+)\.html$', url)
+    return match.group(1) if match else None
+
+
+def generate_zingmp3_signature(path: str, chart_id: str, ctime: str) -> str:
+    """Generate ZingMP3 API signature using HMAC-SHA512."""
+    hash_input = f'ctime={ctime}id={chart_id}version={ZINGMP3_API_VERSION}'
+    sha256_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+    sig = hmac.new(
+        ZINGMP3_SECRET_KEY.encode(),
+        f'{path}{sha256_hash}'.encode(),
+        hashlib.sha512
+    ).hexdigest()
+    return sig
+
+
+def fetch_weekly_chart_api(chart_id: str, proxy: dict) -> list[dict] | None:
+    """Fetch weekly chart using ZingMP3 API with proxy.
+
+    Returns list of songs or None if failed.
+    """
+    path = '/api/v2/page/get/week-chart'
+    ctime = str(int(time.time()))
+    sig = generate_zingmp3_signature(path, chart_id, ctime)
+
+    url = (f'https://zingmp3.vn{path}?id={chart_id}&week=0&year=0'
+           f'&ctime={ctime}&version={ZINGMP3_API_VERSION}'
+           f'&sig={sig}&apiKey={ZINGMP3_API_KEY}')
+
+    proxy_url = f"http://{proxy['ip']}:{proxy['port']}"
+    proxies = {'http': proxy_url, 'https': proxy_url}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://zingmp3.vn/',
+    }
+
+    try:
+        response = requests.get(url, headers=headers, proxies=proxies,
+                               timeout=20, verify=False)
+        data = response.json()
+
+        if data.get('err') == 0:
+            return data.get('data', {}).get('items', [])
+    except Exception:
+        pass
+
+    return None
+
+
+def parse_api_chart_items(items: list[dict]) -> list[dict]:
+    """Parse chart items from ZingMP3 API response.
+
+    Returns list of songs with: position, name, duration, artists
+    """
+    songs = []
+    for i, item in enumerate(items, 1):
+        # Parse duration from seconds
+        duration_sec = item.get('duration', 0)
+        if duration_sec:
+            minutes = duration_sec // 60
+            seconds = duration_sec % 60
+            duration = f"{minutes}:{seconds:02d}"
+        else:
+            duration = ""
+
+        # Get artists
+        artists_names = item.get('artistsNames', '') or ''
+        artist_list = [a.strip() for a in artists_names.split(',') if a.strip()]
+
+        songs.append({
+            'position': i,
+            'name': item.get('title', ''),
+            'duration': duration,
+            'artists': artists_names,
+            'artist_list': artist_list
+        })
+
+    return songs
 
 
 def fetch_vietnam_proxies() -> list[dict]:
@@ -219,6 +317,44 @@ def fetch_zingchart_live(chart_url: str = None) -> str | None:
             print("No chart data (geo-blocked?)")
         else:
             print("Connection failed")
+
+    print("  All proxies failed!")
+    return None
+
+
+def fetch_weekly_chart_live(chart_url: str) -> list[dict] | None:
+    """Fetch weekly chart using ZingMP3 API with Vietnam proxies.
+
+    Weekly charts don't have JSON-LD in HTML, so we use the API instead.
+    Returns list of songs directly or None if failed.
+    """
+    chart_id = extract_chart_id(chart_url)
+    if not chart_id:
+        print(f"  ERROR: Could not extract chart ID from URL: {chart_url}")
+        return None
+
+    print(f"\n[API MODE] Fetching weekly chart {chart_id} via ZingMP3 API...")
+
+    proxies = fetch_vietnam_proxies()
+    if not proxies:
+        print("  No proxies available!")
+        return None
+
+    max_tries = min(30, len(proxies))  # Try up to 30 proxies
+
+    # Try each proxy
+    for i, proxy in enumerate(proxies[:max_tries], 1):
+        source = proxy.get('source', 'unknown')
+        speed = proxy.get('speed', '?')
+        print(f"  [{i:2d}/{max_tries}] {proxy['ip']}:{proxy['port']} ({source}, {speed}ms)...", end=" ", flush=True)
+
+        items = fetch_weekly_chart_api(chart_id, proxy)
+
+        if items:
+            print(f"SUCCESS! Got {len(items)} songs")
+            return parse_api_chart_items(items)
+        else:
+            print("API failed")
 
     print("  All proxies failed!")
     return None
@@ -522,24 +658,42 @@ def main():
     print(f"Output: {output_csv}")
     print("=" * 60)
 
-    # Get HTML content
+    # Get chart content
     html_content = None
+    songs = None  # For weekly charts, we get songs directly from API
+
+    # Check if this is a weekly chart (requires API approach)
+    is_weekly = is_weekly_chart_url(args.chart_url)
 
     if args.vpn:
-        # VPN mode - direct fetch
+        # VPN mode - direct fetch (only works for main chart with JSON-LD)
+        if is_weekly:
+            print("\nWARNING: VPN mode doesn't work for weekly charts (no JSON-LD).")
+            print("Please use --live mode for weekly charts.")
         html_content = fetch_zingchart_direct(args.chart_url)
         if not html_content:
             print("\nFailed to fetch via VPN. Make sure VPN is connected!")
             print("Falling back to local chart.html...")
 
     elif args.live:
-        # Proxy mode
-        html_content = fetch_zingchart_live(args.chart_url)
-        if not html_content:
-            print("\nFailed to fetch via proxies. Falling back to local chart.html...")
+        if is_weekly:
+            # Weekly chart - use API approach
+            songs = fetch_weekly_chart_live(args.chart_url)
+            if not songs:
+                print("\nFailed to fetch weekly chart via API.")
+                import sys
+                sys.exit(1)
+        else:
+            # Main chart - use HTML approach
+            html_content = fetch_zingchart_live(args.chart_url)
+            if not html_content:
+                print("\nFailed to fetch via proxies. Falling back to local chart.html...")
 
-    # Process HTML content or fallback to local file
-    if html_content:
+    # Process HTML content or use songs from API
+    if songs:
+        # Songs already fetched from API (weekly charts)
+        print(f"\n[1/3] Using songs from ZingMP3 API...")
+    elif html_content:
         # Optionally save HTML
         if args.save_html:
             save_path = script_dir / 'chart_live.html'
