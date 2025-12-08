@@ -1,6 +1,6 @@
 # ZingMP3 Chart to Spotify Playlist
 
-Automatically sync ZingMP3's Top 100 chart to a Spotify playlist.
+Automatically sync ZingMP3's Top 100 chart (https://zingmp3.vn/zing-chart) to a Spotify playlist.
 
 ## Features
 
