@@ -1,9 +1,9 @@
-# Sync ZingMP3 Top 100 to Spotify (every 30 minutes)
+# Sync ZingMP3 Top 100 to Spotify (every hour)
 name: Update ZingMP3 Top 100
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30 minutes
+    - cron: '0 * * * *'  # Every hour at minute 0
   workflow_dispatch:  # Manual trigger from GitHub UI
 
 jobs:

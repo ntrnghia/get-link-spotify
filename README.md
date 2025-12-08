@@ -13,7 +13,7 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 
 | Playlist | Songs | Schedule | Link |
 |----------|-------|----------|------|
-| ZingMP3 Top 100 | 100 | Every 30 minutes | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
+| ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
 | ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
 | ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
@@ -84,7 +84,7 @@ python crawl_zingchart.py --live --playlist \
 
 | Workflow | Schedule | Description |
 |----------|----------|-------------|
-| Update ZingMP3 Top 100 | Every 30 minutes | Main chart (100 songs) |
+| Update ZingMP3 Top 100 | Every hour | Main chart (100 songs) |
 | Update ZingMP3 Weekly VN | Sunday 17:00 UTC | Vietnam weekly (40 songs) |
 | Update ZingMP3 Weekly US-UK | Sunday 17:00 UTC | US-UK weekly (20 songs) |
 | Update ZingMP3 Weekly K-POP | Sunday 17:00 UTC | K-POP weekly (20 songs) |
@@ -131,7 +131,7 @@ Go to **Actions** tab > Select any workflow > "Run workflow"
 ```
 .github/workflows/
 ├── sync-chart.yml      # Reusable workflow (DRY)
-├── update-playlist.yml # Top 100 (every 30 min)
+├── top-100.yml         # Top 100 (every hour)
 ├── weekly-vn.yml       # Weekly VN (every Monday)
 ├── weekly-usuk.yml     # Weekly US-UK (every Monday)
 └── weekly-kpop.yml     # Weekly K-POP (every Monday)
