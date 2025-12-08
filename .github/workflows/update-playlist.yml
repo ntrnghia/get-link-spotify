@@ -9,6 +9,7 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -30,12 +31,90 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install OpenVPN
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openvpn
+
+      - name: Fetch Vietnam VPN config from VPN Gate
+        run: |
+          echo "Fetching Vietnam VPN servers from VPN Gate..."
+
+          # Get VPN Gate server list and find Vietnam servers
+          curl -s "https://www.vpngate.net/api/iphone/" | grep ",VN," | head -3 > /tmp/vn_servers.txt
+
+          if [ ! -s /tmp/vn_servers.txt ]; then
+            echo "No Vietnam VPN servers found!"
+            exit 1
+          fi
+
+          # Extract OpenVPN config from first available server
+          while IFS=',' read -r hostname ip score ping speed country code sessions uptime users traffic logtype operator message ovpn_base64; do
+            if [ -n "$ovpn_base64" ]; then
+              echo "Using VPN server: $hostname ($ip)"
+              echo "$ovpn_base64" | base64 -d > /tmp/vpn.ovpn
+
+              # Add auth info for VPN Gate (uses vpn/vpn credentials)
+              echo -e "\nauth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
+              echo -e "vpn\nvpn" > /tmp/vpn_auth.txt
+
+              # Verify config was created
+              if [ -s /tmp/vpn.ovpn ]; then
+                echo "VPN config created successfully"
+                head -20 /tmp/vpn.ovpn
+                break
+              fi
+            fi
+          done < /tmp/vn_servers.txt
+
+      - name: Connect to Vietnam VPN
+        run: |
+          echo "Connecting to Vietnam VPN..."
+          sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
+
+          # Wait for VPN connection (max 60 seconds)
+          for i in {1..30}; do
+            sleep 2
+            if ip addr show tun0 2>/dev/null | grep -q "inet "; then
+              echo "VPN connected! (attempt $i)"
+              ip addr show tun0
+              break
+            fi
+            echo "Waiting for VPN connection... (attempt $i)"
+
+            # Check for errors
+            if grep -q "AUTH_FAILED\|Connection refused\|TLS Error" /tmp/vpn.log 2>/dev/null; then
+              echo "VPN connection failed. Log:"
+              cat /tmp/vpn.log
+              exit 1
+            fi
+          done
+
+          # Verify we have a Vietnam IP
+          echo "Checking IP location..."
+          curl -s https://ipinfo.io/json || true
+
+      - name: Test ZingMP3 access
+        run: |
+          echo "Testing access to zingmp3.vn..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://zingmp3.vn/zing-chart")
+          echo "HTTP Status: $response"
+          if [ "$response" != "200" ]; then
+            echo "Warning: ZingMP3 returned status $response"
+          fi
+
       - name: Run ZingChart crawler
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
-        run: python crawl_zingchart.py --live --playlist --headless
+        run: python crawl_zingchart.py --vpn --playlist --headless
+
+      - name: Disconnect VPN
+        if: always()
+        run: |
+          sudo killall openvpn 2>/dev/null || true
+          echo "VPN disconnected"
 
       - name: Upload CSV artifact
         uses: actions/upload-artifact@v4
@@ -44,3 +123,11 @@ jobs:
           name: zingchart-results
           path: zingchart_spotify.csv
           retention-days: 7
+
+      - name: Upload VPN log on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: vpn-log
+          path: /tmp/vpn.log
+          retention-days: 3
