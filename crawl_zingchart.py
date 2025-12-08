@@ -512,7 +512,7 @@ def get_spotify_client_headless() -> spotipy.Spotify:
     return spotipy.Spotify(auth=token_info['access_token'])
 
 
-def create_or_get_playlist(sp: spotipy.Spotify, playlist_name: str) -> tuple[str, bool]:
+def create_or_get_playlist(sp: spotipy.Spotify, playlist_name: str, chart_url: str = "") -> tuple[str, bool]:
     """Create playlist or get existing one.
 
     Returns tuple of (playlist_id, is_new).
@@ -533,11 +533,12 @@ def create_or_get_playlist(sp: spotipy.Spotify, playlist_name: str) -> tuple[str
             break
 
     # Create new playlist
+    description = f"ZingMP3 Chart - Auto-updated by ZingChart Crawler - {chart_url}" if chart_url else "ZingMP3 Chart - Auto-updated by ZingChart Crawler"
     new_playlist = sp.user_playlist_create(
         user=user_id,
         name=playlist_name,
         public=True,
-        description="ZingMP3 Top 100 Chart - Auto-updated by ZingChart Crawler"
+        description=description
     )
     return new_playlist['id'], True
 
@@ -834,7 +835,7 @@ def main():
     # Update Spotify playlist if requested
     if args.playlist:
         print(f"\n[4/4] Updating Spotify playlist...")
-        playlist_id, is_new = create_or_get_playlist(sp, args.playlist_name)
+        playlist_id, is_new = create_or_get_playlist(sp, args.playlist_name, chart_url)
         if is_new:
             print(f"  Created new playlist: '{args.playlist_name}'")
         else:
