@@ -43,7 +43,7 @@ jobs:
           # Get VPN Gate server list and find Vietnam servers
           # Use tr to remove carriage returns that break base64
           # Get top 10 servers sorted by score (most reliable first)
-          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -10 > /tmp/vn_servers.txt
+          curl -s "https://www.vpngate.net/api/iphone/" | tr -d '\r' | grep ",VN," | head -20 > /tmp/vn_servers.txt
 
           if [ ! -s /tmp/vn_servers.txt ]; then
             echo "No Vietnam VPN servers found!"
@@ -55,9 +55,9 @@ jobs:
 
       - name: Connect to Vietnam VPN
         run: |
-          # Try connecting to VPN servers until one works
+          # Try connecting to VPN servers until one works AND gives Vietnam IP
           server_num=0
-          connected=false
+          vietnam_connected=false
 
           while IFS=',' read -r line; do
             server_num=$((server_num + 1))
@@ -94,40 +94,52 @@ jobs:
             echo "Starting OpenVPN..."
             sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
 
-            # Wait for connection (max 30 seconds per server)
+            # Wait for tun0 interface (max 30 seconds per server)
+            tun_up=false
             for i in {1..15}; do
               sleep 2
               if ip addr show tun0 2>/dev/null | grep -q "inet "; then
-                echo "VPN connected successfully!"
-                ip addr show tun0
-                connected=true
+                echo "VPN tunnel established!"
+                tun_up=true
                 break
               fi
 
               # Check for fatal errors
               if grep -q "AUTH_FAILED\|Connection refused\|TLS Error\|SIGTERM" /tmp/vpn.log 2>/dev/null; then
-                echo "Connection failed, trying next server..."
-                cat /tmp/vpn.log | tail -20
+                echo "Connection error, trying next server..."
                 break
               fi
-              echo "Waiting... ($i/15)"
+              echo "Waiting for tunnel... ($i/15)"
             done
 
-            if [ "$connected" = "true" ]; then
+            if [ "$tun_up" != "true" ]; then
+              echo "Tunnel not established, trying next server..."
+              continue
+            fi
+
+            # Verify we actually have a Vietnam IP
+            sleep 2  # Let routing stabilize
+            echo "Verifying IP location..."
+            ip_info=$(curl -s --max-time 10 https://ipinfo.io/json)
+            echo "$ip_info"
+
+            country=$(echo "$ip_info" | grep -o '"country": *"[^"]*"' | cut -d'"' -f4)
+            if [ "$country" = "VN" ]; then
+              echo "SUCCESS: Got Vietnam IP!"
+              vietnam_connected=true
               break
+            else
+              echo "WARNING: Got $country IP instead of VN, trying next server..."
+              sudo killall openvpn 2>/dev/null || true
             fi
           done < /tmp/vn_servers.txt
 
-          if [ "$connected" != "true" ]; then
-            echo "Failed to connect to any VPN server!"
+          if [ "$vietnam_connected" != "true" ]; then
+            echo ""
+            echo "FAILED: Could not get Vietnam IP from any server!"
             cat /tmp/vpn.log 2>/dev/null || true
             exit 1
           fi
-
-          # Verify we have a Vietnam IP
-          echo ""
-          echo "Checking IP location..."
-          curl -s https://ipinfo.io/json || true
 
       - name: Test ZingMP3 access
         run: |

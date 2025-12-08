@@ -545,7 +545,8 @@ def main():
         # Use local file
         if not html_file.exists():
             print(f"ERROR: No local chart.html found. Cannot continue.")
-            return
+            import sys
+            sys.exit(1)
         print(f"\n[1/3] Parsing {html_file}...")
         songs = parse_chart_file(str(html_file))
 
