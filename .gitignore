@@ -23,9 +23,12 @@ __pycache__/
 
 # Output files (regenerated each run)
 zingchart_spotify.csv
+zingchart_weekly_*.csv
 chart_live.html
 chart.html
 chart_files/
+weekly.html
+weekly_files/
 
 # VPN config files
 *.ovpn

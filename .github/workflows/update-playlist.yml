@@ -1,5 +1,5 @@
-# Sync ZingMP3 Top 100 to Spotify
-name: Update ZingMP3 Playlist
+# Sync ZingMP3 Top 100 to Spotify (every 30 minutes)
+name: Update ZingMP3 Top 100
 
 on:
   schedule:
@@ -8,105 +8,11 @@ on:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Get latest Python version
-        id: python-version
-        run: |
-          # Fetch latest stable Python version from GitHub API (exclude alpha/beta/rc)
-          PYTHON_VER=$(curl -s https://api.github.com/repos/python/cpython/tags | \
-            grep -Po '"name": "v\K[0-9.]+(?=")' | \
-            grep -v -E 'a|b|rc' | \
-            head -1)
-          echo "version=$PYTHON_VER" >> $GITHUB_OUTPUT
-          echo "Latest stable Python: $PYTHON_VER"
-
-      - name: Set up Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ steps.python-version.outputs.version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Fetch ZingChart via Vietnam proxy
-        run: |
-          echo "Fetching Vietnam proxies from proxyscrape API..."
-
-          # Fetch fresh Vietnam proxies from proxyscrape API v4 (remove Windows line endings)
-          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v4/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=vn&ssl=all&anonymity=all&skip=0&limit=100" 2>/dev/null | tr -d '\r') || true
-
-          if [ -z "$proxies" ]; then
-            echo "ERROR: Failed to fetch proxy list from API"
-            exit 1
-          fi
-
-          echo "Got $(echo "$proxies" | wc -l) proxies from API"
-          echo ""
-
-          success=false
-          count=0
-          max_attempts=20
-
-          for proxy in $proxies; do
-            count=$((count + 1))
-            if [ $count -gt $max_attempts ]; then
-              echo "Reached max attempts ($max_attempts)"
-              break
-            fi
-
-            echo "[$count/$max_attempts] Trying proxy $proxy..."
-
-            # Retry up to 3 times for partial data
-            for retry in 1 2 3; do
-              # Fetch with timeout
-              curl -s --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null || true
-
-              # Check if we got complete chart data (should be >100KB)
-              if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
-                filesize=$(wc -c < chart_live.html)
-                if [ "$filesize" -gt 100000 ]; then
-                  echo "  SUCCESS: Got chart data ($filesize bytes)"
-                  grep -o '"name":"[^"]*"' chart_live.html | head -3
-                  success=true
-                  break 2  # Break both loops
-                else
-                  echo "  Attempt $retry/3: Partial data ($filesize bytes, need >100KB)"
-                  rm -f chart_live.html
-                  sleep 1
-                fi
-              else
-                echo "  FAIL: No chart data"
-                rm -f chart_live.html
-                break  # No point retrying if no data at all
-              fi
-            done
-          done
-
-          if [ "$success" != "true" ]; then
-            echo ""
-            echo "ERROR: No working proxy found after $count attempts!"
-            exit 1
-          fi
-
-      - name: Run ZingChart crawler
-        env:
-          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
-        run: python crawl_zingchart.py --playlist --headless
-
-      - name: Upload CSV artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zingchart-results
-          path: zingchart_spotify.csv
-          retention-days: 7
-          if-no-files-found: ignore
+    uses: ./.github/workflows/sync-chart.yml
+    with:
+      chart_url: 'https://zingmp3.vn/zing-chart'
+      chart_name: 'Top 100'
+      playlist_name: 'ZingMP3 Top 100'
+      output_csv: 'zingchart_spotify.csv'
+      min_file_size: 100000
+    secrets: inherit

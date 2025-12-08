@@ -1,18 +1,31 @@
 # ZingMP3 Chart to Spotify Playlist
 
-Automatically sync ZingMP3's Top 100 chart (https://zingmp3.vn/zing-chart) to a Spotify playlist.
+Automatically sync ZingMP3 charts to Spotify playlists.
 
 ## Features
 
-- Crawl top 100 songs from ZingMP3 chart
-- Find matching songs on Spotify
-- Create/update a Spotify playlist with the chart songs
-- GitHub Actions automation (hourly updates via Vietnam proxies)
+- Sync multiple ZingMP3 charts to Spotify playlists
+- GitHub Actions automation with Vietnam proxies
 - Auto-detect latest stable Python version
+- DRY workflow architecture (reusable workflow)
 
-## Live Playlist
+## Live Playlists
 
-[ZingMP3 Top 100 on Spotify](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ)
+| Playlist | Songs | Schedule | Link |
+|----------|-------|----------|------|
+| ZingMP3 Top 100 | 100 | Every 30 minutes | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
+| ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | Coming soon |
+| ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | Coming soon |
+| ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | Coming soon |
+
+## Supported Charts
+
+| Chart | URL | Songs |
+|-------|-----|-------|
+| Top 100 | https://zingmp3.vn/zing-chart | 100 |
+| Weekly VN | https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html | 40 |
+| Weekly US-UK | https://zingmp3.vn/zing-chart-tuan/bai-hat-US-UK/IWZ9Z0BW.html | 20 |
+| Weekly K-POP | https://zingmp3.vn/zing-chart-tuan/bai-hat-Kpop/IWZ9Z0BO.html | 20 |
 
 ## Setup
 
@@ -58,22 +71,34 @@ python crawl_zingchart.py --live
 # Update Spotify playlist
 python crawl_zingchart.py --playlist
 
-# Custom playlist name
-python crawl_zingchart.py --playlist --playlist-name "My Chart"
+# Custom chart URL and playlist name
+python crawl_zingchart.py --live --playlist \
+  --chart-url "https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html" \
+  --playlist-name "ZingMP3 Weekly VN" \
+  --output-csv "weekly_vn.csv"
 ```
 
-## GitHub Actions (Hourly Automation)
+## GitHub Actions Automation
 
-The workflow runs automatically every hour at **minute 0** (UTC):
-- 00:00, 01:00, 02:00, ... 23:00 UTC
+### Workflow Schedules
+
+| Workflow | Schedule | Description |
+|----------|----------|-------------|
+| Update ZingMP3 Top 100 | Every 30 minutes | Main chart (100 songs) |
+| Update ZingMP3 Weekly VN | Sunday 17:00 UTC | Vietnam weekly (40 songs) |
+| Update ZingMP3 Weekly US-UK | Sunday 17:00 UTC | US-UK weekly (20 songs) |
+| Update ZingMP3 Weekly K-POP | Sunday 17:00 UTC | K-POP weekly (20 songs) |
+
+> Note: Sunday 17:00 UTC = Monday 0:00 Vietnam time (UTC+7)
 
 ### How It Works
 
 1. Fetches latest stable Python version from GitHub API
-2. Gets Vietnam proxy list from proxyscrape API
+2. Gets Vietnam proxy list from proxyscrape API v4
 3. Tries proxies until one successfully fetches ZingMP3 chart
-4. Parses chart and finds matching Spotify tracks
-5. Updates the Spotify playlist
+4. Retries up to 3 times per proxy for partial data
+5. Parses chart and finds matching Spotify tracks
+6. Updates the Spotify playlist
 
 ### Setup Secrets
 
@@ -97,7 +122,18 @@ Go to your repo **Settings > Secrets and variables > Actions**, and add:
 
 ### Manual Trigger
 
-Go to **Actions** tab > "Update ZingMP3 Playlist" > "Run workflow"
+Go to **Actions** tab > Select any workflow > "Run workflow"
+
+## Project Structure
+
+```
+.github/workflows/
+├── sync-chart.yml      # Reusable workflow (DRY)
+├── update-playlist.yml # Top 100 (every 30 min)
+├── weekly-vn.yml       # Weekly VN (every Monday)
+├── weekly-usuk.yml     # Weekly US-UK (every Monday)
+└── weekly-kpop.yml     # Weekly K-POP (every Monday)
+```
 
 ## Tech Stack
 

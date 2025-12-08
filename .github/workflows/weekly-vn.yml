@@ -1,0 +1,18 @@
+# Sync ZingMP3 Weekly Vietnam Chart to Spotify (every Monday 0:00 VN time)
+name: Update ZingMP3 Weekly VN
+
+on:
+  schedule:
+    - cron: '0 17 * * 0'  # Sunday 17:00 UTC = Monday 0:00 VN (UTC+7)
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  update:
+    uses: ./.github/workflows/sync-chart.yml
+    with:
+      chart_url: 'https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html'
+      chart_name: 'Weekly VN'
+      playlist_name: 'ZingMP3 Weekly VN'
+      output_csv: 'zingchart_weekly_vn.csv'
+      min_file_size: 50000
+    secrets: inherit

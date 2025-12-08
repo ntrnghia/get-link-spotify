@@ -1,0 +1,18 @@
+# Sync ZingMP3 Weekly US-UK Chart to Spotify (every Monday 0:00 VN time)
+name: Update ZingMP3 Weekly US-UK
+
+on:
+  schedule:
+    - cron: '0 17 * * 0'  # Sunday 17:00 UTC = Monday 0:00 VN (UTC+7)
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  update:
+    uses: ./.github/workflows/sync-chart.yml
+    with:
+      chart_url: 'https://zingmp3.vn/zing-chart-tuan/bai-hat-US-UK/IWZ9Z0BW.html'
+      chart_name: 'Weekly US-UK'
+      playlist_name: 'ZingMP3 Weekly US-UK'
+      output_csv: 'zingchart_weekly_usuk.csv'
+      min_file_size: 30000
+    secrets: inherit

@@ -1,0 +1,18 @@
+# Sync ZingMP3 Weekly K-POP Chart to Spotify (every Monday 0:00 VN time)
+name: Update ZingMP3 Weekly K-POP
+
+on:
+  schedule:
+    - cron: '0 17 * * 0'  # Sunday 17:00 UTC = Monday 0:00 VN (UTC+7)
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  update:
+    uses: ./.github/workflows/sync-chart.yml
+    with:
+      chart_url: 'https://zingmp3.vn/zing-chart-tuan/bai-hat-Kpop/IWZ9Z0BO.html'
+      chart_name: 'Weekly K-POP'
+      playlist_name: 'ZingMP3 Weekly K-POP'
+      output_csv: 'zingchart_weekly_kpop.csv'
+      min_file_size: 30000
+    secrets: inherit

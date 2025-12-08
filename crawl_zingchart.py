@@ -167,13 +167,14 @@ def fetch_with_proxy(url: str, proxy: dict, timeout: int = 15) -> str | None:
     return None
 
 
-def fetch_zingchart_direct() -> str | None:
+def fetch_zingchart_direct(chart_url: str = None) -> str | None:
     """Fetch zing-chart page directly (requires VPN to be connected). Returns HTML content or None."""
-    print("\n[VPN MODE] Fetching ZingMP3 chart directly (VPN must be connected)...")
+    url = chart_url or ZINGCHART_URL
+    print(f"\n[VPN MODE] Fetching {url} directly (VPN must be connected)...")
 
     try:
         response = requests.get(
-            ZINGCHART_URL,
+            url,
             headers=HEADERS,
             timeout=30
         )
@@ -191,9 +192,10 @@ def fetch_zingchart_direct() -> str | None:
         return None
 
 
-def fetch_zingchart_live() -> str | None:
+def fetch_zingchart_live(chart_url: str = None) -> str | None:
     """Fetch zing-chart page using Vietnam proxies. Returns HTML content or None."""
-    print("\n[PROXY MODE] Fetching ZingMP3 chart using Vietnam proxies...")
+    url = chart_url or ZINGCHART_URL
+    print(f"\n[PROXY MODE] Fetching {url} using Vietnam proxies...")
 
     proxies = fetch_vietnam_proxies()
     if not proxies:
@@ -208,7 +210,7 @@ def fetch_zingchart_live() -> str | None:
         speed = proxy.get('speed', '?')
         print(f"  [{i:2d}/{max_tries}] {proxy['ip']}:{proxy['port']} ({source}, {speed}ms)...", end=" ", flush=True)
 
-        html = fetch_with_proxy(ZINGCHART_URL, proxy)
+        html = fetch_with_proxy(url, proxy)
 
         if html and 'MusicPlaylist' in html:
             print("SUCCESS!")
@@ -494,24 +496,30 @@ def main():
                         help='Name of the Spotify playlist (default: "ZingMP3 Top 100")')
     parser.add_argument('--headless', action='store_true',
                         help='Run in headless/CI mode (uses SPOTIFY_REFRESH_TOKEN env var)')
+    parser.add_argument('--chart-url', type=str, default='https://zingmp3.vn/zing-chart',
+                        help='URL of the ZingMP3 chart to crawl (default: zing-chart)')
+    parser.add_argument('--output-csv', type=str, default='zingchart_spotify.csv',
+                        help='Output CSV filename (default: zingchart_spotify.csv)')
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
     html_file = script_dir / 'chart.html'
-    output_csv = script_dir / 'zingchart_spotify.csv'
+    output_csv = script_dir / args.output_csv
 
     print("=" * 60)
     print("ZingMP3 Chart Crawler with Spotify Links")
+    print(f"Chart: {args.chart_url}")
     if args.vpn:
         print("Mode: VPN (direct fetch - VPN must be connected)")
     elif args.live:
-        print("Mode: PROXY (fetching via Vietnam proxies - unreliable)")
+        print("Mode: PROXY (fetching via Vietnam proxies)")
     else:
         print("Mode: LOCAL (using saved chart.html)")
     if args.playlist:
         print(f"Playlist: Will create/update '{args.playlist_name}'")
     if args.headless:
         print("Auth: Headless mode (using refresh token)")
+    print(f"Output: {output_csv}")
     print("=" * 60)
 
     # Get HTML content
@@ -519,14 +527,14 @@ def main():
 
     if args.vpn:
         # VPN mode - direct fetch
-        html_content = fetch_zingchart_direct()
+        html_content = fetch_zingchart_direct(args.chart_url)
         if not html_content:
             print("\nFailed to fetch via VPN. Make sure VPN is connected!")
             print("Falling back to local chart.html...")
 
     elif args.live:
         # Proxy mode
-        html_content = fetch_zingchart_live()
+        html_content = fetch_zingchart_live(args.chart_url)
         if not html_content:
             print("\nFailed to fetch via proxies. Falling back to local chart.html...")
 
