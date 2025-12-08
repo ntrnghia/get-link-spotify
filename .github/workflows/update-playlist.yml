@@ -55,12 +55,18 @@ jobs:
             # Fetch with timeout
             curl -s --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null || true
 
-            # Check if we got chart data
+            # Check if we got complete chart data (should be >100KB)
             if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
-              echo "SUCCESS: Got chart data from $proxy ($(wc -c < chart_live.html) bytes)"
-              grep -o '"name":"[^"]*"' chart_live.html | head -3
-              success=true
-              break
+              filesize=$(wc -c < chart_live.html)
+              if [ "$filesize" -gt 100000 ]; then
+                echo "SUCCESS: Got chart data from $proxy ($filesize bytes)"
+                grep -o '"name":"[^"]*"' chart_live.html | head -3
+                success=true
+                break
+              else
+                echo "FAIL: Partial data only ($filesize bytes, need >100KB)"
+                rm -f chart_live.html
+              fi
             else
               echo "FAIL: No chart data"
               rm -f chart_live.html
