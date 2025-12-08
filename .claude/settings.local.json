@@ -1,10 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl:*)",
-      "WebSearch",
-      "Bash(gh run list:*)",
-      "Bash(gh run view:*)"
+      "Bash(python -c:*)"
     ],
     "deny": [],
     "ask": []

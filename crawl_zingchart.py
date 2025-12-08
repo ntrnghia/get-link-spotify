@@ -159,24 +159,7 @@ def fetch_vietnam_proxies() -> list[dict]:
     """Fetch Vietnam proxies from multiple sources, sorted by speed (fastest first)."""
     proxies = []
 
-    # Source 1: Geonode API
-    print("  Fetching from Geonode API...")
-    try:
-        response = requests.get(GEONODE_API_URL, headers=HEADERS, timeout=15)
-        if response.status_code == 200:
-            data = response.json()
-            for proxy in data.get('data', []):
-                proxies.append({
-                    'ip': proxy.get('ip', ''),
-                    'port': proxy.get('port', ''),
-                    'speed': proxy.get('speed', 9999),
-                    'source': 'geonode'
-                })
-            print(f"    Found {len(data.get('data', []))} proxies from Geonode")
-    except Exception as e:
-        print(f"    Geonode failed: {e}")
-
-    # Source 2: ProxyScrape API
+    # Source 1: ProxyScrape API (primary)
     print("  Fetching from ProxyScrape API...")
     try:
         response = requests.get(FREE_PROXY_API_URL, headers=HEADERS, timeout=15)
@@ -322,18 +305,70 @@ def fetch_zingchart_live(chart_url: str = None) -> str | None:
     return None
 
 
-def fetch_weekly_chart_live(chart_url: str) -> list[dict] | None:
-    """Fetch weekly chart using ZingMP3 API with Vietnam proxies.
+def get_mobile_weekly_url(chart_url: str) -> str:
+    """Convert desktop weekly chart URL to mobile URL.
 
-    Weekly charts don't have JSON-LD in HTML, so we use the API instead.
-    Returns list of songs directly or None if failed.
+    Example: https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html
+          -> https://m.zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html
     """
-    chart_id = extract_chart_id(chart_url)
-    if not chart_id:
-        print(f"  ERROR: Could not extract chart ID from URL: {chart_url}")
+    return chart_url.replace('://zingmp3.vn/', '://m.zingmp3.vn/')
+
+
+def parse_mobile_weekly_chart(html: str) -> list[dict] | None:
+    """Parse weekly chart from mobile site HTML.
+
+    Returns list of songs with: position, name, duration, artists, artist_list
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Find all chart items
+    chart_items = soup.find_all('li', class_='z-chart-item')
+    if not chart_items:
         return None
 
-    print(f"\n[API MODE] Fetching weekly chart {chart_id} via ZingMP3 API...")
+    songs = []
+    for item in chart_items:
+        # Get rank
+        rank_elem = item.find(class_='sort-number')
+        rank = rank_elem.get_text(strip=True) if rank_elem else str(len(songs) + 1)
+
+        # Get card-info
+        card_info = item.find(class_='card-info')
+        if not card_info:
+            continue
+
+        # Get title
+        title_elem = card_info.find(class_='title')
+        title = title_elem.get_text(strip=True) if title_elem else ''
+
+        # Get artist - it's in class='artist'
+        artist_elem = card_info.find(class_='artist')
+        artist = artist_elem.get_text(strip=True) if artist_elem else ''
+
+        if title:
+            # Parse artists into list
+            artist_list = [a.strip() for a in artist.split(',') if a.strip()]
+
+            songs.append({
+                'position': int(rank) if rank.isdigit() else len(songs) + 1,
+                'name': title,
+                'duration': '',  # Mobile site doesn't show duration
+                'artists': artist,
+                'artist_list': artist_list
+            })
+
+    return songs if songs else None
+
+
+def fetch_weekly_chart_live(chart_url: str) -> list[dict] | None:
+    """Fetch weekly chart from mobile site with Vietnam proxies.
+
+    Weekly charts don't have JSON-LD in HTML, so we use the mobile site
+    which renders chart data server-side.
+    Returns list of songs directly or None if failed.
+    """
+    mobile_url = get_mobile_weekly_url(chart_url)
+    print(f"\n[MOBILE MODE] Fetching weekly chart from {mobile_url}...")
 
     proxies = fetch_vietnam_proxies()
     if not proxies:
@@ -348,13 +383,17 @@ def fetch_weekly_chart_live(chart_url: str) -> list[dict] | None:
         speed = proxy.get('speed', '?')
         print(f"  [{i:2d}/{max_tries}] {proxy['ip']}:{proxy['port']} ({source}, {speed}ms)...", end=" ", flush=True)
 
-        items = fetch_weekly_chart_api(chart_id, proxy)
+        html = fetch_with_proxy(mobile_url, proxy, timeout=20)
 
-        if items:
-            print(f"SUCCESS! Got {len(items)} songs")
-            return parse_api_chart_items(items)
+        if html and 'z-chart-item' in html:
+            songs = parse_mobile_weekly_chart(html)
+            if songs:
+                print(f"SUCCESS! Got {len(songs)} songs")
+                return songs
+            else:
+                print("Failed to parse")
         else:
-            print("API failed")
+            print("No chart data")
 
     print("  All proxies failed!")
     return None
