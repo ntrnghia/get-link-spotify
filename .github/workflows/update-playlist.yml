@@ -33,22 +33,34 @@ jobs:
 
       - name: Fetch ZingChart via Vietnam proxy
         run: |
-          echo "Fetching ZingMP3 chart via Vietnam proxies..."
+          echo "Fetching Vietnam proxies from proxyscrape API..."
 
-          # Known working proxies (tested)
-          PROXIES=(
-            "113.177.204.26:8080"
-            "14.225.240.23:8562"
-            "171.253.59.195:8080"
-          )
+          # Fetch fresh Vietnam proxies from proxyscrape API
+          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=vn" 2>/dev/null) || true
+
+          if [ -z "$proxies" ]; then
+            echo "ERROR: Failed to fetch proxy list from API"
+            exit 1
+          fi
+
+          echo "Got $(echo "$proxies" | wc -l) proxies from API"
+          echo ""
 
           success=false
-          for proxy in "${PROXIES[@]}"; do
-            echo ""
-            echo "Trying proxy $proxy..."
+          count=0
+          max_attempts=20
 
-            # Fetch and save directly
-            curl -s --compressed --proxy "http://$proxy" --max-time 20 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null
+          for proxy in $proxies; do
+            count=$((count + 1))
+            if [ $count -gt $max_attempts ]; then
+              echo "Reached max attempts ($max_attempts)"
+              break
+            fi
+
+            echo "[$count/$max_attempts] Trying proxy $proxy..."
+
+            # Fetch with timeout and retry (|| true to ignore curl errors)
+            curl -s --compressed --proxy "http://$proxy" --max-time 20 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null || true
 
             # Check if we got chart data
             if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
@@ -57,35 +69,14 @@ jobs:
               success=true
               break
             else
-              echo "FAIL: No chart data from $proxy"
+              echo "FAIL: No chart data"
               rm -f chart_live.html
             fi
           done
 
-          # If known proxies fail, try fetching fresh ones
           if [ "$success" != "true" ]; then
             echo ""
-            echo "Known proxies failed. Trying fresh proxies from freeproxy.world..."
-
-            fresh_proxies=$(curl -s --max-time 15 "https://www.freeproxy.world/?type=&anonymity=&country=VN&speed=&port=&page=1" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | head -10)
-
-            for proxy in $fresh_proxies; do
-              echo "Trying fresh proxy $proxy..."
-              curl -s --compressed --proxy "http://$proxy" --max-time 15 "https://zingmp3.vn/zing-chart" -o chart_live.html 2>/dev/null
-
-              if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
-                echo "SUCCESS: Got chart data from $proxy"
-                success=true
-                break
-              else
-                rm -f chart_live.html
-              fi
-            done
-          fi
-
-          if [ "$success" != "true" ]; then
-            echo ""
-            echo "ERROR: No working proxy found!"
+            echo "ERROR: No working proxy found after $count attempts!"
             exit 1
           fi
 
