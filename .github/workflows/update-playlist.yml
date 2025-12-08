@@ -58,9 +58,14 @@ jobs:
           # Try connecting to VPN servers until one works AND gives Vietnam IP
           server_num=0
           vietnam_connected=false
+          max_servers=15  # Try up to 15 servers
 
           while IFS=',' read -r line; do
             server_num=$((server_num + 1))
+            if [ $server_num -gt $max_servers ]; then
+              echo "Reached max server limit ($max_servers)"
+              break
+            fi
 
             # Extract server info
             ovpn_base64=$(echo "$line" | awk -F',' '{print $NF}')
@@ -81,9 +86,11 @@ jobs:
               continue
             fi
 
-            # Add auth
+            # Add auth and connection tweaks
             echo "" >> /tmp/vpn.ovpn
             echo "auth-user-pass /tmp/vpn_auth.txt" >> /tmp/vpn.ovpn
+            echo "connect-timeout 10" >> /tmp/vpn.ovpn
+            echo "connect-retry-max 1" >> /tmp/vpn.ovpn
             printf "vpn\nvpn\n" > /tmp/vpn_auth.txt
 
             # Kill any existing VPN
@@ -94,9 +101,9 @@ jobs:
             echo "Starting OpenVPN..."
             sudo openvpn --config /tmp/vpn.ovpn --daemon --log /tmp/vpn.log
 
-            # Wait for tun0 interface (max 30 seconds per server)
+            # Wait for tun0 interface (max 20 seconds per server - reduced for faster retry)
             tun_up=false
-            for i in {1..15}; do
+            for i in {1..10}; do
               sleep 2
               if ip addr show tun0 2>/dev/null | grep -q "inet "; then
                 echo "VPN tunnel established!"
@@ -104,16 +111,18 @@ jobs:
                 break
               fi
 
-              # Check for fatal errors
-              if grep -q "AUTH_FAILED\|Connection refused\|TLS Error\|SIGTERM" /tmp/vpn.log 2>/dev/null; then
-                echo "Connection error, trying next server..."
+              # Check for fatal errors (expanded list)
+              if grep -qE "AUTH_FAILED|Connection refused|TLS Error|SIGTERM|Connection timed out|No route to host|Network is unreachable" /tmp/vpn.log 2>/dev/null; then
+                echo "Connection error detected:"
+                tail -5 /tmp/vpn.log 2>/dev/null || true
                 break
               fi
-              echo "Waiting for tunnel... ($i/15)"
+              echo "Waiting for tunnel... ($i/10)"
             done
 
             if [ "$tun_up" != "true" ]; then
-              echo "Tunnel not established, trying next server..."
+              echo "Tunnel not established. VPN log:"
+              tail -10 /tmp/vpn.log 2>/dev/null || true
               continue
             fi
 
@@ -137,6 +146,7 @@ jobs:
           if [ "$vietnam_connected" != "true" ]; then
             echo ""
             echo "FAILED: Could not get Vietnam IP from any server!"
+            echo "Final VPN log:"
             cat /tmp/vpn.log 2>/dev/null || true
             exit 1
           fi
@@ -171,10 +181,17 @@ jobs:
           path: zingchart_spotify.csv
           retention-days: 7
 
+      - name: Copy VPN log for artifact upload
+        if: failure()
+        run: |
+          sudo cp /tmp/vpn.log ./vpn-debug.log 2>/dev/null || echo "No VPN log to copy"
+          sudo chmod 644 ./vpn-debug.log 2>/dev/null || true
+
       - name: Upload VPN log on failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: vpn-log
-          path: /tmp/vpn.log
+          path: vpn-debug.log
           retention-days: 3
+          if-no-files-found: ignore
