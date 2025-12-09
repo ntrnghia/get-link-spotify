@@ -103,6 +103,7 @@ CHARTS = {
         "name": "Top 100",
         "playlist": "ZingMP3 Top 100",
         "sorted_playlist": "ZingMP3 Top 100 (sorted by Spotify popularity)",
+        "trending_playlist": "ZingMP3 Top 100 (new & trending)",
         "output_file": "zingchart_top_100.xlsx",
         "min_file_size": 100000,
         "mode": "live",

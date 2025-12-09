@@ -67,6 +67,12 @@ def main() -> None:
         help="Create second playlist sorted by Spotify popularity (optional)",
     )
     parser.add_argument(
+        "--trending-playlist-name",
+        type=str,
+        default="",
+        help="Create third playlist sorted by rank + popularity (new & trending)",
+    )
+    parser.add_argument(
         "--min-file-size",
         type=int,
         default=0,
@@ -113,6 +119,7 @@ def main() -> None:
         output_file=args.output_file,
         playlist_name=args.playlist_name if args.playlist else None,
         sorted_playlist_name=args.sorted_playlist_name,
+        trending_playlist_name=args.trending_playlist_name,
         headless=args.headless,
         min_file_size=args.min_file_size,
         save_html=args.save_html,

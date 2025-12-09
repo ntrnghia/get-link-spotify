@@ -22,9 +22,12 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 |----------|-------|----------|------|
 | ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
 | ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/64TpllojsS4Tj4n8eyIgu3) |
+| ZingMP3 Top 100 (new & trending) | 100 | Every hour | [Open](https://open.spotify.com/playlist/1KjsCsUthDVwi0XMHZJ5jz) |
 | ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
 | ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
+
+> **New & Trending**: Songs sorted by `rank + popularity` (ascending). Lower score = high chart position + low Spotify popularity = truly new/trending songs.
 
 ## Supported Charts
 
@@ -89,6 +92,11 @@ python main.py --live --playlist \
 python main.py --playlist \
   --playlist-name "ZingMP3 Top 100" \
   --sorted-playlist-name "ZingMP3 Top 100 (sorted by Spotify popularity)"
+
+# Create trending playlist (sorted by rank + popularity, new & trending first)
+python main.py --playlist \
+  --playlist-name "ZingMP3 Top 100" \
+  --trending-playlist-name "ZingMP3 Top 100 (new & trending)"
 ```
 
 ### 4. Benchmark Tool

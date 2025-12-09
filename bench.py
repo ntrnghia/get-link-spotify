@@ -74,6 +74,7 @@ def run_benchmark(
         output_file=chart["output_file"],
         playlist_name=chart["playlist"] if not no_playlist else None,
         sorted_playlist_name=chart.get("sorted_playlist", "") if not no_playlist else "",
+        trending_playlist_name=chart.get("trending_playlist", "") if not no_playlist else "",
         headless=headless,
         min_file_size=chart["min_file_size"],
         save_html=False,

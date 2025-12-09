@@ -145,6 +145,7 @@ def sync_to_playlists(
     playlist_name: str,
     chart_url: str = "",
     sorted_playlist_name: str = "",
+    trending_playlist_name: str = "",
 ) -> dict[str, str]:
     """Sync results to Spotify playlists.
 
@@ -154,7 +155,8 @@ def sync_to_playlists(
         track_uris: List of track URIs to add
         playlist_name: Main playlist name
         chart_url: Chart URL for playlist description
-        sorted_playlist_name: Optional second playlist sorted by popularity
+        sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
+        trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
 
     Returns:
         Dict of playlist names to URLs
@@ -171,7 +173,7 @@ def sync_to_playlists(
     print(f"  {action} playlist '{playlist_name}' ({tracks_added} tracks)")
     playlist_urls[playlist_name] = f"https://open.spotify.com/playlist/{playlist_id}"
 
-    # Sorted playlist (optional)
+    # Sorted by popularity playlist (optional) - most popular first
     if sorted_playlist_name:
         sorted_results = sorted(
             [r for r in results if r.found],
@@ -186,6 +188,20 @@ def sync_to_playlists(
         print(f"  {action} sorted playlist '{sorted_playlist_name}'")
         playlist_urls[sorted_playlist_name] = f"https://open.spotify.com/playlist/{sorted_id}"
 
+    # Trending playlist (optional) - sorted by rank + popularity (low = new & trending)
+    if trending_playlist_name:
+        trending_results = sorted(
+            [r for r in results if r.found],
+            key=lambda x: x.rank + x.popularity,
+        )
+        trending_uris = [r.track_uri for r in trending_results]
+
+        trending_id, is_new = create_or_get_playlist(sp, trending_playlist_name, chart_url)
+        action = "Created" if is_new else "Updated"
+        update_playlist(sp, trending_id, trending_uris)
+        print(f"  {action} trending playlist '{trending_playlist_name}'")
+        playlist_urls[trending_playlist_name] = f"https://open.spotify.com/playlist/{trending_id}"
+
     return playlist_urls
 
 
@@ -195,6 +211,7 @@ def run_chart_sync(
     output_file: str | None = None,
     playlist_name: str | None = None,
     sorted_playlist_name: str = "",
+    trending_playlist_name: str = "",
     headless: bool = False,
     min_file_size: int = 0,
     save_html: bool = False,
@@ -207,7 +224,8 @@ def run_chart_sync(
         mode: Fetch mode - "vpn", "live", or "local"
         output_file: Path to output Excel file (None to skip)
         playlist_name: Spotify playlist name (None to skip playlist)
-        sorted_playlist_name: Optional second playlist sorted by popularity
+        sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
+        trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
         headless: Use headless Spotify auth
         min_file_size: Minimum HTML size to consider valid
         save_html: Save fetched HTML to file
@@ -271,6 +289,7 @@ def run_chart_sync(
             playlist_name,
             chart_url,
             sorted_playlist_name,
+            trending_playlist_name,
         )
 
     return output

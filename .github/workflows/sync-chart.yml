@@ -31,6 +31,11 @@ on:
         required: false
         type: string
         default: ''
+      trending_playlist_name:
+        description: 'Name of third playlist sorted by rank + popularity (new & trending)'
+        required: false
+        type: string
+        default: ''
     secrets:
       SPOTIFY_CLIENT_ID:
         required: true
@@ -92,7 +97,8 @@ jobs:
             --playlist-name "${{ inputs.playlist_name }}" \
             --output-file "${{ inputs.output_file }}" \
             --min-file-size ${{ inputs.min_file_size }} \
-            ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }}
+            ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }} \
+            ${{ inputs.trending_playlist_name && format('--trending-playlist-name "{0}"', inputs.trending_playlist_name) || '' }}
 
       - name: Upload Excel artifact
         uses: actions/upload-artifact@v4
