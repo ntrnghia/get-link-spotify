@@ -11,6 +11,7 @@ import os
 import re
 import time
 import warnings
+from difflib import SequenceMatcher
 from pathlib import Path
 from bs4 import BeautifulSoup
 import requests
@@ -356,7 +357,8 @@ def parse_mobile_weekly_chart(html: str) -> list[dict] | None:
                 'name': title,
                 'duration': '',  # Mobile site doesn't show duration
                 'artists': artist,
-                'artist_list': artist_list
+                'artist_list': artist_list,
+                'url': ''  # Mobile site doesn't have URL in this format
             })
 
     return songs if songs else None
@@ -451,7 +453,8 @@ def parse_chart_content(html_content: str) -> list[dict]:
                         'name': song_data.get('name', ''),
                         'duration': parse_duration(song_data.get('duration', '')),
                         'artists': ', '.join(artist_names),
-                        'artist_list': artist_names  # Keep list for search
+                        'artist_list': artist_names,  # Keep list for search
+                        'url': item.get('url', '')  # URL is in itemListElement, not in item
                     })
 
                 break
@@ -569,51 +572,95 @@ def update_playlist(sp: spotipy.Spotify, playlist_id: str, track_ids: list[str])
     return len(valid_track_ids)
 
 
-def normalize_title(title: str) -> str:
-    """Normalize title for comparison (lowercase, remove extra spaces)."""
-    return ' '.join(title.lower().split())
+def string_similarity(a: str, b: str) -> float:
+    """Calculate string similarity ratio (0.0 to 1.0) using SequenceMatcher."""
+    if not a or not b:
+        return 0.0
+    a_norm = ' '.join(a.lower().split())
+    b_norm = ' '.join(b.lower().split())
+    return SequenceMatcher(None, a_norm, b_norm).ratio()
 
 
-def title_match_score(search_title: str, spotify_title: str) -> int:
-    """Score how well a Spotify title matches the search title.
+def duration_to_seconds(duration_str: str) -> int | None:
+    """Convert duration string (M:SS or H:MM:SS) to seconds."""
+    if not duration_str:
+        return None
+    parts = duration_str.split(':')
+    try:
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        elif len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    except ValueError:
+        return None
+    return None
 
-    Higher score = better match.
+
+def duration_similarity(zing_duration: str, spotify_ms: int) -> float:
+    """Compare durations using proportional difference.
+
+    Formula: 1 - |diff| / max(zing_sec, spotify_sec)
+    Returns similarity 0.0 to 1.0.
     """
-    search_norm = normalize_title(search_title)
-    spotify_norm = normalize_title(spotify_title)
+    zing_sec = duration_to_seconds(zing_duration)
+    if zing_sec is None or zing_sec == 0:
+        return 0.5  # No data, neutral score
+    spotify_sec = spotify_ms // 1000
+    if spotify_sec == 0:
+        return 0.5
 
-    # Exact match (ignoring case) = highest score
-    if search_norm == spotify_norm:
-        return 100
+    diff = abs(zing_sec - spotify_sec)
+    max_duration = max(zing_sec, spotify_sec)
+    similarity = 1.0 - (diff / max_duration)
 
-    # Check for unwanted suffixes in Spotify result
-    # If we're NOT searching for a remix/cover but Spotify returns one, penalize
-    suffixes = ['remix', 'cover', 'acoustic', 'live', 'version', 'edit', 'mix']
-    search_has_suffix = any(s in search_norm for s in suffixes)
-    spotify_has_suffix = any(s in spotify_norm for s in suffixes)
-
-    if not search_has_suffix and spotify_has_suffix:
-        return 10  # Heavy penalty - we don't want remixes when searching for original
-
-    if search_has_suffix and not spotify_has_suffix:
-        return 20  # We want a remix but got original - not ideal
-
-    # Partial match - Spotify title starts with or contains search title
-    if spotify_norm.startswith(search_norm):
-        return 80
-
-    if search_norm in spotify_norm:
-        return 60
-
-    # Default - some match but not great
-    return 40
+    return max(0.0, similarity)  # Clamp to 0 minimum
 
 
-def search_spotify(sp: spotipy.Spotify, song_name: str, artists: list[str]) -> dict | None:
+def artist_similarity(zing_artists: list[str], spotify_artists: list[dict]) -> float:
+    """Compare artist lists, return similarity 0.0 to 1.0."""
+    if not zing_artists or not spotify_artists:
+        return 0.5  # No data, neutral score
+
+    spotify_names = [a['name'] for a in spotify_artists]
+
+    # Find best match between any ZingMP3 artist and any Spotify artist
+    best_match = 0.0
+    for zing_artist in zing_artists:
+        for spotify_artist in spotify_names:
+            sim = string_similarity(zing_artist, spotify_artist)
+            best_match = max(best_match, sim)
+
+    return best_match
+
+
+def calculate_match_score(song: dict, spotify_track: dict) -> float:
+    """Calculate comprehensive match score between ZingMP3 song and Spotify track.
+
+    Returns score from 0.0 to 1.0 (higher = better match).
+    Uses equal weights for: Title, Artist, Duration (33.3% each)
+    """
+    title_sim = string_similarity(song['name'], spotify_track['name'])
+    artist_sim = artist_similarity(song.get('artist_list', []), spotify_track.get('artists', []))
+    duration_sim = duration_similarity(song.get('duration', ''), spotify_track.get('duration_ms', 0))
+
+    # Simple average of 3 fields (equal weights)
+    score = (title_sim + artist_sim + duration_sim) / 3
+
+    return score
+
+
+def search_spotify(sp: spotipy.Spotify, song: dict) -> dict | None:
     """Search for a song on Spotify.
 
-    Returns dict with: url, album_name, track_uri, popularity, or None if not found
+    Args:
+        sp: Spotify client
+        song: Dict with name, artists, artist_list, duration, url
+
+    Returns dict with all Spotify fields + match_score, or None if not found
     """
+    song_name = song['name']
+    artists = song.get('artist_list', [])
+
     # Try different search strategies
     search_queries = []
 
@@ -634,23 +681,35 @@ def search_spotify(sp: spotipy.Spotify, song_name: str, artists: list[str]) -> d
             tracks = results.get('tracks', {}).get('items', [])
 
             if tracks:
-                # Score each track and pick the best match
+                # Score each track and pick the best match using comprehensive scoring
                 best_track = None
                 best_score = -1
 
                 for track in tracks:
-                    score = title_match_score(song_name, track['name'])
+                    score = calculate_match_score(song, track)
                     if score > best_score:
                         best_score = score
                         best_track = track
 
                 if best_track:
+                    # Convert Spotify duration_ms to M:SS format
+                    duration_ms = best_track.get('duration_ms', 0)
+                    if duration_ms:
+                        minutes = duration_ms // 60000
+                        seconds = (duration_ms % 60000) // 1000
+                        spotify_duration = f"{minutes}:{seconds:02d}"
+                    else:
+                        spotify_duration = ''
+
                     return {
-                        'url': best_track['external_urls'].get('spotify', ''),
-                        'album_name': best_track['album'].get('name', ''),
+                        'spotify_name': best_track['name'],
                         'spotify_artist': ', '.join([a['name'] for a in best_track['artists']]),
-                        'track_uri': best_track['uri'],  # For playlist management
-                        'popularity': best_track.get('popularity', 0)  # Spotify popularity score (0-100)
+                        'spotify_album': best_track['album'].get('name', ''),
+                        'spotify_duration': spotify_duration,
+                        'spotify_url': best_track['external_urls'].get('spotify', ''),
+                        'popularity': best_track.get('popularity', 0),
+                        'track_uri': best_track['uri'],
+                        'match_score': best_score
                     }
         except Exception as e:
             print(f"  Search error for '{query}': {e}")
@@ -662,6 +721,8 @@ def search_spotify(sp: spotipy.Spotify, song_name: str, artists: list[str]) -> d
 def write_excel(results: list[dict], output_file: str) -> None:
     """Write results to Excel file with formatting.
 
+    12 columns: ZingMP3 (5) + Spotify (6) + Match % (1)
+
     Args:
         results: List of song result dicts
         output_file: Path to output Excel file
@@ -670,29 +731,58 @@ def write_excel(results: list[dict], output_file: str) -> None:
     ws = wb.active
     ws.title = "ZingMP3 Chart"
 
-    # Headers
-    headers = ['Rank', 'Song Name', 'Artists', 'Duration', 'Album', 'Popularity', 'Spotify Link']
-    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    # Headers - ZingMP3 (5 cols) + Spotify (6 cols) + Match (1 col)
+    headers = [
+        # ZingMP3 data
+        'Rank', 'Song Name', 'Artists', 'Duration', 'ZingMP3 Link',
+        # Spotify data
+        'Song Name (Spotify)', 'Artists (Spotify)', 'Album (Spotify)',
+        'Duration (Spotify)', 'Spotify Link', 'Popularity',
+        # Match result
+        'Match %'
+    ]
+
+    # Header styling
+    zing_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')  # Blue for ZingMP3
+    spotify_fill = PatternFill(start_color='1DB954', end_color='1DB954', fill_type='solid')  # Green for Spotify
+    match_fill = PatternFill(start_color='FFC000', end_color='FFC000', fill_type='solid')  # Orange for Match
     header_font = Font(bold=True, color='FFFFFF')
 
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = header_font
-        cell.fill = header_fill
         cell.alignment = Alignment(horizontal='center')
+        # Color based on column group
+        if col <= 5:
+            cell.fill = zing_fill
+        elif col <= 11:
+            cell.fill = spotify_fill
+        else:
+            cell.fill = match_fill
 
     # Data rows
     for row_idx, r in enumerate(results, 2):
+        # ZingMP3 columns
         ws.cell(row=row_idx, column=1, value=r['rank'])
         ws.cell(row=row_idx, column=2, value=r['song_name'])
         ws.cell(row=row_idx, column=3, value=r['artists'])
         ws.cell(row=row_idx, column=4, value=r['duration'])
-        ws.cell(row=row_idx, column=5, value=r['album'])
-        ws.cell(row=row_idx, column=6, value=r.get('popularity', 0))
-        ws.cell(row=row_idx, column=7, value=r['spotify_link'])
+        ws.cell(row=row_idx, column=5, value=r.get('zing_url', ''))
+
+        # Spotify columns
+        ws.cell(row=row_idx, column=6, value=r.get('spotify_name', ''))
+        ws.cell(row=row_idx, column=7, value=r.get('spotify_artist', ''))
+        ws.cell(row=row_idx, column=8, value=r.get('spotify_album', ''))
+        ws.cell(row=row_idx, column=9, value=r.get('spotify_duration', ''))
+        ws.cell(row=row_idx, column=10, value=r.get('spotify_url', ''))
+        ws.cell(row=row_idx, column=11, value=r.get('popularity', 0))
+
+        # Match column (as percentage)
+        match_score = r.get('match_score', 0)
+        ws.cell(row=row_idx, column=12, value=f"{match_score * 100:.0f}%" if match_score else '')
 
     # Set column widths
-    column_widths = [6, 35, 30, 10, 30, 12, 50]
+    column_widths = [6, 30, 25, 8, 45, 30, 25, 25, 8, 45, 10, 10]
     for col, width in enumerate(column_widths, 1):
         ws.column_dimensions[get_column_letter(col)].width = width
 
@@ -722,6 +812,8 @@ def main():
                         help='URL of the ZingMP3 chart to crawl (default: zing-chart)')
     parser.add_argument('--output-file', type=str, default='zingchart_spotify.xlsx',
                         help='Output Excel filename (default: zingchart_spotify.xlsx)')
+    parser.add_argument('--sorted-playlist-name', type=str, default='',
+                        help='Create second playlist sorted by Spotify popularity (optional)')
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
@@ -831,25 +923,33 @@ def main():
     results = []
     track_uris = []  # Collect track URIs for playlist
 
+    total_songs = len(songs)
     for song in songs:
         pos = song['position']
         name = song['name']
-        artists = song['artist_list']
 
-        print(f"  [{pos:3d}/100] {name} - {song['artists'][:30]}...", end=" ")
+        print(f"  [{pos:3d}/{total_songs}] {name} - {song['artists'][:30]}...", end=" ")
 
-        spotify_result = search_spotify(sp, name, artists)
+        # Pass full song dict to search_spotify for comprehensive matching
+        spotify_result = search_spotify(sp, song)
 
         if spotify_result:
-            print(f"FOUND (pop: {spotify_result['popularity']})")
+            match_pct = spotify_result['match_score'] * 100
+            print(f"FOUND (match: {match_pct:.0f}%, pop: {spotify_result['popularity']})")
             results.append({
                 'rank': pos,
                 'song_name': name,
                 'artists': song['artists'],
                 'duration': song['duration'],
-                'album': spotify_result['album_name'],
+                'zing_url': song.get('url', ''),
+                'spotify_name': spotify_result['spotify_name'],
+                'spotify_artist': spotify_result['spotify_artist'],
+                'spotify_album': spotify_result['spotify_album'],
+                'spotify_duration': spotify_result['spotify_duration'],
+                'spotify_url': spotify_result['spotify_url'],
                 'popularity': spotify_result['popularity'],
-                'spotify_link': spotify_result['url']
+                'match_score': spotify_result['match_score'],
+                'track_uri': spotify_result['track_uri']
             })
             track_uris.append(spotify_result['track_uri'])
         else:
@@ -859,9 +959,15 @@ def main():
                 'song_name': name,
                 'artists': song['artists'],
                 'duration': song['duration'],
-                'album': '',
+                'zing_url': song.get('url', ''),
+                'spotify_name': '',
+                'spotify_artist': '',
+                'spotify_album': '',
+                'spotify_duration': '',
+                'spotify_url': '',
                 'popularity': 0,
-                'spotify_link': 'Not found'
+                'match_score': 0,
+                'track_uri': ''
             })
 
         # Small delay to avoid rate limiting
@@ -872,7 +978,7 @@ def main():
     write_excel(results, str(output_file))
 
     # Summary
-    found_count = sum(1 for r in results if r['spotify_link'] != 'Not found')
+    found_count = sum(1 for r in results if r['spotify_url'])
     print(f"\n{'=' * 60}")
     print(f"Excel saved to: {output_file}")
     print(f"Found on Spotify: {found_count}/{len(results)} songs")
@@ -891,15 +997,40 @@ def main():
         playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
         print(f"  Playlist URL: {playlist_url}")
 
+        # Create second playlist sorted by popularity if specified
+        if args.sorted_playlist_name and track_uris:
+            print(f"\n[5/5] Creating popularity-sorted playlist...")
+
+            # Sort results by popularity (high to low), keep only found tracks
+            sorted_results = sorted(
+                [r for r in results if r['spotify_url']],
+                key=lambda x: x.get('popularity', 0),
+                reverse=True
+            )
+            sorted_uris = [r['track_uri'] for r in sorted_results]
+
+            sorted_playlist_id, is_new = create_or_get_playlist(
+                sp, args.sorted_playlist_name, args.chart_url
+            )
+            if is_new:
+                print(f"  Created new playlist: '{args.sorted_playlist_name}'")
+            else:
+                print(f"  Found existing playlist: '{args.sorted_playlist_name}'")
+
+            sorted_tracks_added = update_playlist(sp, sorted_playlist_id, sorted_uris)
+            print(f"  Added {sorted_tracks_added} tracks (sorted by popularity)")
+            sorted_playlist_url = f"https://open.spotify.com/playlist/{sorted_playlist_id}"
+            print(f"  Playlist URL: {sorted_playlist_url}")
+
     print(f"\n{'=' * 60}")
     print("DONE!")
     print(f"{'=' * 60}")
 
     # Print first 10 as preview
     print("\nPreview (Top 10):")
-    print("-" * 80)
+    print("-" * 100)
     for r in results[:10]:
-        status = "OK" if r['spotify_link'] != 'Not found' else "NOT FOUND"
+        status = f"Match: {r['match_score']*100:.0f}%" if r['spotify_url'] else "NOT FOUND"
         print(f"#{r['rank']:2d} | {r['song_name'][:25]:25s} | {r['artists'][:20]:20s} | {status}")
 
 
