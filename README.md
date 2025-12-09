@@ -1,4 +1,4 @@
-# ZingMP3 Chart to Spotify Playlist
+# ZingMP3 Charts to Spotify Playlists
 
 Automatically sync ZingMP3 charts to Spotify playlists.
 
