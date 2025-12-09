@@ -112,7 +112,7 @@ def main() -> None:
             print(f"  [{pos:3d}] {name[:30]:30s} NOT FOUND{cache_tag}")
 
     # Run sync
-    print("\n[1/3] Fetching chart...")
+    print("\nFetching chart and syncing to Spotify...")
     output = run_chart_sync(
         chart_url=args.chart_url,
         mode=mode,

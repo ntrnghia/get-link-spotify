@@ -276,6 +276,10 @@ def search_songs_concurrent(
 ) -> list[dict]:
     """Search for multiple songs concurrently with caching.
 
+    Optimized flow:
+    1. Check cache synchronously for all songs (instant)
+    2. Only submit cache misses to ThreadPoolExecutor
+
     Args:
         sp: Spotify client
         songs: List of song dicts
@@ -284,37 +288,57 @@ def search_songs_concurrent(
     Returns:
         List of result dicts in same order as input songs
     """
+    cache = get_spotify_cache()
     results = [None] * len(songs)
     cache_hits = 0
-    cache_misses = 0
+    cache_misses_indices = []  # Track indices that need API calls
 
-    def search_with_index(index: int, song: dict) -> tuple[int, dict | None, bool]:
-        result, was_cached = search_spotify(sp, song)
-        # Handle empty dict from negative cache
-        if result == {}:
-            result = None
-        time.sleep(REQUEST_DELAY)  # Small delay to avoid rate limiting
-        return index, result, was_cached
-
-    with ThreadPoolExecutor(max_workers=SPOTIFY_SEARCH_WORKERS) as executor:
-        futures = {
-            executor.submit(search_with_index, i, song): i
-            for i, song in enumerate(songs)
-        }
-
-        for future in as_completed(futures):
-            index, result, was_cached = future.result()
-            results[index] = result
-
-            if was_cached:
-                cache_hits += 1
-            else:
-                cache_misses += 1
-
+    # Phase 1: Check cache synchronously for all songs (instant)
+    for i, song in enumerate(songs):
+        artists = song.get("artists", "")
+        cached = cache.get_song(song["name"], artists)
+        
+        if cached is not None:
+            # Cache hit - use cached result directly
+            result = cached if cached != {} else None
+            results[i] = result
+            cache_hits += 1
             if progress_callback:
-                progress_callback(index, songs[index], result, was_cached)
+                progress_callback(i, song, result, True)
+        else:
+            # Cache miss - need to fetch from API
+            cache_misses_indices.append(i)
 
-    print(f"  Cache: {cache_hits} hits, {cache_misses} misses")
+    # Phase 2: Fetch only cache misses concurrently
+    if cache_misses_indices:
+        def search_with_index(index: int) -> tuple[int, dict | None]:
+            song = songs[index]
+            result = search_spotify_single(sp, song)
+            
+            # Cache the result
+            artists = song.get("artists", "")
+            if result is not None:
+                cache.set_song(song["name"], artists, result)
+            else:
+                cache.set_song(song["name"], artists, {})
+            
+            time.sleep(REQUEST_DELAY)  # Small delay to avoid rate limiting
+            return index, result
+
+        with ThreadPoolExecutor(max_workers=SPOTIFY_SEARCH_WORKERS) as executor:
+            futures = {
+                executor.submit(search_with_index, i): i
+                for i in cache_misses_indices
+            }
+
+            for future in as_completed(futures):
+                index, result = future.result()
+                results[index] = result
+
+                if progress_callback:
+                    progress_callback(index, songs[index], result, False)
+
+    print(f"  Cache: {cache_hits} hits, {len(cache_misses_indices)} misses")
     return results
 
 
