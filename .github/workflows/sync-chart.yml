@@ -76,7 +76,7 @@ jobs:
           path: |
             .spotify_cache.json
             .proxy_cache.json
-          key: app-cache-${{ github.run_id }}
+          key: app-cache-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             app-cache-
 
@@ -109,6 +109,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Delete old cache
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache delete "app-cache-${{ hashFiles('requirements.txt') }}" --repo ${{ github.repository }} || true
+
       - name: Save caches
         uses: actions/cache/save@v4
         if: always()
@@ -116,4 +123,4 @@ jobs:
           path: |
             .spotify_cache.json
             .proxy_cache.json
-          key: app-cache-${{ github.run_id }}
+          key: app-cache-${{ hashFiles('requirements.txt') }}
