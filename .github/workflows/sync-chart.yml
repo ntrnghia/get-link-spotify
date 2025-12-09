@@ -48,9 +48,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      actions: write  # Required for gh cache delete
-      contents: read
 
     steps:
       - name: Checkout repository
@@ -74,12 +71,12 @@ jobs:
           cache: 'pip'
 
       - name: Restore caches
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             .spotify_cache.json
             .proxy_cache.json
-          key: app-cache-${{ hashFiles('requirements.txt') }}
+          key: app-cache-${{ github.run_id }}
           restore-keys: |
             app-cache-
 
@@ -112,33 +109,6 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Delete old cache and save new
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          CACHE_KEY="app-cache-${{ hashFiles('requirements.txt') }}"
-          echo "Cache key: $CACHE_KEY"
-          
-          # List existing caches to debug
-          echo "Existing caches:"
-          gh cache list --repo ${{ github.repository }} | grep "app-cache" || echo "No app-cache found"
-          
-          # Delete the cache (show actual error for debugging)
-          echo "Deleting cache..."
-          if gh cache delete "$CACHE_KEY" --repo ${{ github.repository }}; then
-            echo "Cache deleted successfully"
-          else
-            echo "Cache deletion failed or cache not found"
-          fi
-          
-          # Wait for GitHub to process the deletion
-          sleep 5
-          
-          # Verify deletion
-          echo "Caches after deletion:"
-          gh cache list --repo ${{ github.repository }} | grep "app-cache" || echo "No app-cache found"
-
       - name: Save caches
         uses: actions/cache/save@v4
         if: always()
@@ -146,4 +116,4 @@ jobs:
           path: |
             .spotify_cache.json
             .proxy_cache.json
-          key: app-cache-${{ hashFiles('requirements.txt') }}
+          key: app-cache-${{ github.run_id }}
