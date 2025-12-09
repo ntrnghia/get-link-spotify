@@ -12,7 +12,6 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 - Excel output with side-by-side ZingMP3 and Spotify data comparison
 - Optional popularity-sorted playlist creation
 - GitHub Actions automation with Vietnam proxies
-- Auto-detect latest stable Python version
 - DRY workflow architecture (reusable workflow)
 - **Benchmark tool** for testing all charts locally
 
@@ -132,7 +131,7 @@ python bench.py --chart=top-100 --no-playlist
 
 ### How It Works
 
-1. Fetches latest stable Python version from GitHub API
+1. Uses pre-cached Python 3.x on GitHub runners (no download required)
 2. Restores Spotify/proxy cache from previous runs (single cache entry, updated each run)
 3. Gets Vietnam proxies from multiple sources concurrently (ProxyScrape, Free-Proxy-List)
 4. Tests cached proxies first, then fresh proxies concurrently (2 workers) with early exit on first success:
@@ -198,7 +197,7 @@ Key settings in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `PROXY_TIMEOUT` | 30s | Total timeout for proxy requests (split: 15s connect, 15s read) |
+| `PROXY_TIMEOUT` | 20s | Total timeout for proxy requests (split: 10s connect, 10s read) |
 | `PROXY_TEST_WORKERS` | 2 | Concurrent proxy testing threads |
 | `PROXY_CACHE_TTL_MINUTES` | 120 | How long to cache working proxies (2 hours) |
 | `SPOTIFY_SEARCH_WORKERS` | 4 | Concurrent Spotify search threads |
@@ -207,7 +206,7 @@ Key settings in `config.py`:
 
 ## Tech Stack
 
-- Python 3.11+ (auto-detect latest stable version)
+- Python 3.11+
 - [spotipy](https://github.com/spotipy-dev/spotipy) - Spotify API wrapper
 - [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz) - Fast string similarity matching
 - [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) - HTML parsing
