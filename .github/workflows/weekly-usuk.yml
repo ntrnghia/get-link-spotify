@@ -13,6 +13,6 @@ jobs:
       chart_url: 'https://zingmp3.vn/zing-chart-tuan/bai-hat-US-UK/IWZ9Z0BW.html'
       chart_name: 'Weekly US-UK'
       playlist_name: 'ZingMP3 Weekly US-UK'
-      output_csv: 'zingchart_weekly_usuk.csv'
+      output_file: 'zingchart_weekly_usuk.xlsx'
       min_file_size: 30000
     secrets: inherit

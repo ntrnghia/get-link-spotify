@@ -9,7 +9,6 @@ import hashlib
 import hmac
 import os
 import re
-import csv
 import time
 import warnings
 from pathlib import Path
@@ -18,6 +17,9 @@ import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 # Suppress SSL warnings for proxies
 warnings.filterwarnings('ignore', category=InsecureRequestWarning)
@@ -610,7 +612,7 @@ def title_match_score(search_title: str, spotify_title: str) -> int:
 def search_spotify(sp: spotipy.Spotify, song_name: str, artists: list[str]) -> dict | None:
     """Search for a song on Spotify.
 
-    Returns dict with: url, album_name, track_uri, or None if not found
+    Returns dict with: url, album_name, track_uri, popularity, or None if not found
     """
     # Try different search strategies
     search_queries = []
@@ -647,13 +649,57 @@ def search_spotify(sp: spotipy.Spotify, song_name: str, artists: list[str]) -> d
                         'url': best_track['external_urls'].get('spotify', ''),
                         'album_name': best_track['album'].get('name', ''),
                         'spotify_artist': ', '.join([a['name'] for a in best_track['artists']]),
-                        'track_uri': best_track['uri']  # For playlist management
+                        'track_uri': best_track['uri'],  # For playlist management
+                        'popularity': best_track.get('popularity', 0)  # Spotify popularity score (0-100)
                     }
         except Exception as e:
             print(f"  Search error for '{query}': {e}")
             continue
 
     return None
+
+
+def write_excel(results: list[dict], output_file: str) -> None:
+    """Write results to Excel file with formatting.
+
+    Args:
+        results: List of song result dicts
+        output_file: Path to output Excel file
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ZingMP3 Chart"
+
+    # Headers
+    headers = ['Rank', 'Song Name', 'Artists', 'Duration', 'Album', 'Popularity', 'Spotify Link']
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF')
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center')
+
+    # Data rows
+    for row_idx, r in enumerate(results, 2):
+        ws.cell(row=row_idx, column=1, value=r['rank'])
+        ws.cell(row=row_idx, column=2, value=r['song_name'])
+        ws.cell(row=row_idx, column=3, value=r['artists'])
+        ws.cell(row=row_idx, column=4, value=r['duration'])
+        ws.cell(row=row_idx, column=5, value=r['album'])
+        ws.cell(row=row_idx, column=6, value=r.get('popularity', 0))
+        ws.cell(row=row_idx, column=7, value=r['spotify_link'])
+
+    # Set column widths
+    column_widths = [6, 35, 30, 10, 30, 12, 50]
+    for col, width in enumerate(column_widths, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    # Freeze header row
+    ws.freeze_panes = 'A2'
+
+    wb.save(output_file)
 
 
 def main():
@@ -674,13 +720,13 @@ def main():
                         help='Run in headless/CI mode (uses SPOTIFY_REFRESH_TOKEN env var)')
     parser.add_argument('--chart-url', type=str, default='https://zingmp3.vn/zing-chart',
                         help='URL of the ZingMP3 chart to crawl (default: zing-chart)')
-    parser.add_argument('--output-csv', type=str, default='zingchart_spotify.csv',
-                        help='Output CSV filename (default: zingchart_spotify.csv)')
+    parser.add_argument('--output-file', type=str, default='zingchart_spotify.xlsx',
+                        help='Output Excel filename (default: zingchart_spotify.xlsx)')
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
     html_file = script_dir / 'chart.html'
-    output_csv = script_dir / args.output_csv
+    output_file = script_dir / args.output_file
 
     print("=" * 60)
     print("ZingMP3 Chart Crawler with Spotify Links")
@@ -695,7 +741,7 @@ def main():
         print(f"Playlist: Will create/update '{args.playlist_name}'")
     if args.headless:
         print("Auth: Headless mode (using refresh token)")
-    print(f"Output: {output_csv}")
+    print(f"Output: {output_file}")
     print("=" * 60)
 
     # Get chart content
@@ -795,13 +841,14 @@ def main():
         spotify_result = search_spotify(sp, name, artists)
 
         if spotify_result:
-            print(f"FOUND")
+            print(f"FOUND (pop: {spotify_result['popularity']})")
             results.append({
                 'rank': pos,
                 'song_name': name,
                 'artists': song['artists'],
                 'duration': song['duration'],
                 'album': spotify_result['album_name'],
+                'popularity': spotify_result['popularity'],
                 'spotify_link': spotify_result['url']
             })
             track_uris.append(spotify_result['track_uri'])
@@ -813,23 +860,21 @@ def main():
                 'artists': song['artists'],
                 'duration': song['duration'],
                 'album': '',
+                'popularity': 0,
                 'spotify_link': 'Not found'
             })
 
         # Small delay to avoid rate limiting
         time.sleep(0.1)
 
-    # Save to CSV
-    print(f"\nSaving results to {output_csv}...")
-    with open(output_csv, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['rank', 'song_name', 'artists', 'duration', 'album', 'spotify_link'])
-        writer.writeheader()
-        writer.writerows(results)
+    # Save to Excel
+    print(f"\nSaving results to {output_file}...")
+    write_excel(results, str(output_file))
 
     # Summary
     found_count = sum(1 for r in results if r['spotify_link'] != 'Not found')
     print(f"\n{'=' * 60}")
-    print(f"CSV saved to: {output_csv}")
+    print(f"Excel saved to: {output_file}")
     print(f"Found on Spotify: {found_count}/{len(results)} songs")
 
     # Update Spotify playlist if requested

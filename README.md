@@ -75,7 +75,7 @@ python crawl_zingchart.py --playlist
 python crawl_zingchart.py --live --playlist \
   --chart-url "https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html" \
   --playlist-name "ZingMP3 Weekly VN" \
-  --output-csv "weekly_vn.csv"
+  --output-file "weekly_vn.xlsx"
 ```
 
 ## GitHub Actions Automation

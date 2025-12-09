@@ -13,6 +13,6 @@ jobs:
       chart_url: 'https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html'
       chart_name: 'Weekly VN'
       playlist_name: 'ZingMP3 Weekly VN'
-      output_csv: 'zingchart_weekly_vn.csv'
+      output_file: 'zingchart_weekly_vn.xlsx'
       min_file_size: 50000
     secrets: inherit

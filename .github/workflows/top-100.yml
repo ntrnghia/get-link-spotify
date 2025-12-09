@@ -13,6 +13,6 @@ jobs:
       chart_url: 'https://zingmp3.vn/zing-chart'
       chart_name: 'Top 100'
       playlist_name: 'ZingMP3 Top 100'
-      output_csv: 'zingchart_spotify.csv'
+      output_file: 'zingchart_spotify.xlsx'
       min_file_size: 100000
     secrets: inherit
