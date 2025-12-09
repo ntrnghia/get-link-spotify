@@ -188,19 +188,38 @@ def sync_to_playlists(
         print(f"  {action} sorted playlist '{sorted_playlist_name}'")
         playlist_urls[sorted_playlist_name] = f"https://open.spotify.com/playlist/{sorted_id}"
 
-    # Trending playlist (optional) - sorted by rank + popularity (low = new & trending)
+    # Trending playlist (optional) - sorted by normalized rank + popularity (low = new & trending)
     if trending_playlist_name:
-        trending_results = sorted(
-            [r for r in results if r.found],
-            key=lambda x: x.rank + x.popularity,
-        )
-        trending_uris = [r.track_uri for r in trending_results]
+        found_results = [r for r in results if r.found]
+        
+        if found_results:
+            # Calculate min/max for normalization
+            ranks = [r.rank for r in found_results]
+            pops = [r.popularity for r in found_results]
+            min_rank, max_rank = min(ranks), max(ranks)
+            min_pop, max_pop = min(pops), max(pops)
+            
+            # Normalize function (handles edge case where min == max)
+            def normalize(value: float, min_val: float, max_val: float) -> float:
+                if max_val == min_val:
+                    return 0.0
+                return (value - min_val) / (max_val - min_val)
+            
+            # Sort by normalized rank + normalized popularity (ascending)
+            trending_results = sorted(
+                found_results,
+                key=lambda r: (
+                    normalize(r.rank, min_rank, max_rank) +
+                    normalize(r.popularity, min_pop, max_pop)
+                ),
+            )
+            trending_uris = [r.track_uri for r in trending_results]
 
-        trending_id, is_new = create_or_get_playlist(sp, trending_playlist_name, chart_url)
-        action = "Created" if is_new else "Updated"
-        update_playlist(sp, trending_id, trending_uris)
-        print(f"  {action} trending playlist '{trending_playlist_name}'")
-        playlist_urls[trending_playlist_name] = f"https://open.spotify.com/playlist/{trending_id}"
+            trending_id, is_new = create_or_get_playlist(sp, trending_playlist_name, chart_url)
+            action = "Created" if is_new else "Updated"
+            update_playlist(sp, trending_id, trending_uris)
+            print(f"  {action} trending playlist '{trending_playlist_name}'")
+            playlist_urls[trending_playlist_name] = f"https://open.spotify.com/playlist/{trending_id}"
 
     return playlist_urls
 

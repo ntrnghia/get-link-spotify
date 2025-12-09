@@ -27,7 +27,7 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
 | ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
 
-> **New & Trending**: Songs sorted by `rank + popularity` (ascending). Lower score = high chart position + low Spotify popularity = truly new/trending songs.
+> **New & Trending**: Songs sorted by `normalized_rank + normalized_popularity` (ascending). Both values are scaled 0-1 based on actual min/max. Lower score = high chart position + low Spotify popularity = truly new/trending songs.
 
 ## Supported Charts
 
