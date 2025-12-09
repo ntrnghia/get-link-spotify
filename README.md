@@ -133,16 +133,17 @@ python bench.py --chart=top-100 --no-playlist
 ### How It Works
 
 1. Fetches latest stable Python version from GitHub API
-2. Restores Spotify search cache from previous runs
+2. Restores Spotify/proxy cache from previous runs (single cache entry, updated each run)
 3. Gets Vietnam proxies from multiple sources concurrently (ProxyScrape, Free-Proxy-List)
-4. Tests proxies concurrently (2 workers) with early exit on first success:
+4. Tests cached proxies first, then fresh proxies concurrently (2 workers) with early exit on first success:
    - **Top 100**: Parses JSON-LD from desktop site HTML
    - **Weekly charts**: Parses mobile site (`m.zingmp3.vn`) which has server-side rendered data
 5. Searches Spotify concurrently (4 workers) with caching:
    - Cache hits skip API calls entirely (24h TTL)
    - Uses rapidfuzz for fast string similarity matching
    - Scores matches using title, artist, duration (33% each)
-6. Updates the Spotify playlist (and optional popularity-sorted playlist)
+6. Updates the Spotify playlist (and optional popularity-sorted/trending playlists)
+7. Deletes old cache and saves updated cache (maintains single cache entry)
 
 ### Setup Secrets
 
