@@ -121,12 +121,16 @@ jobs:
           echo "Existing caches:"
           gh cache list --repo ${{ github.repository }} | grep "app-cache" || echo "No app-cache found"
           
-          # Delete the cache (ignore errors if not found)
+          # Delete the cache (show actual error for debugging)
           echo "Deleting cache..."
-          gh cache delete "$CACHE_KEY" --repo ${{ github.repository }} 2>/dev/null || echo "Cache not found or already deleted"
+          if gh cache delete "$CACHE_KEY" --repo ${{ github.repository }}; then
+            echo "Cache deleted successfully"
+          else
+            echo "Cache deletion failed or cache not found"
+          fi
           
-          # Wait a moment for GitHub to process the deletion
-          sleep 2
+          # Wait for GitHub to process the deletion
+          sleep 5
           
           # Verify deletion
           echo "Caches after deletion:"
