@@ -48,6 +48,9 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: write  # Required for gh cache delete
+      contents: read
 
     steps:
       - name: Checkout repository
