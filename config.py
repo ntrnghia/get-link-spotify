@@ -20,9 +20,9 @@ PROXY_CACHE_FILE = PROJECT_ROOT / ".proxy_cache.json"
 # =============================================================================
 # TIMEOUTS (seconds)
 # =============================================================================
-PROXY_TIMEOUT = 30
+PROXY_TIMEOUT = 20
 API_TIMEOUT = 20
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 20
 
 # =============================================================================
 # DELAYS (seconds)
