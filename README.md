@@ -5,6 +5,9 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 ## Features
 
 - Sync multiple ZingMP3 charts to Spotify playlists
+- Comprehensive match scoring using string similarity (title, artist, duration)
+- Excel output with side-by-side ZingMP3 and Spotify data comparison
+- Optional popularity-sorted playlist creation
 - GitHub Actions automation with Vietnam proxies
 - Auto-detect latest stable Python version
 - DRY workflow architecture (reusable workflow)
@@ -14,6 +17,7 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 | Playlist | Songs | Schedule | Link |
 |----------|-------|----------|------|
 | ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
+| ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/64TpllojsS4Tj4n8eyIgu3) |
 | ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
 | ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
@@ -76,6 +80,11 @@ python crawl_zingchart.py --live --playlist \
   --chart-url "https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html" \
   --playlist-name "ZingMP3 Weekly VN" \
   --output-file "weekly_vn.xlsx"
+
+# Create additional playlist sorted by Spotify popularity
+python crawl_zingchart.py --playlist \
+  --playlist-name "ZingMP3 Top 100" \
+  --sorted-playlist-name "ZingMP3 Top 100 (sorted by Spotify popularity)"
 ```
 
 ## GitHub Actions Automation
@@ -99,8 +108,12 @@ python crawl_zingchart.py --live --playlist \
    - **Top 100**: Parses JSON-LD from desktop site HTML
    - **Weekly charts**: Parses mobile site (`m.zingmp3.vn`) which has server-side rendered data
 4. Retries up to 3 times per proxy for partial data
-5. Searches Spotify for matching tracks
-6. Updates the Spotify playlist
+5. Searches Spotify and scores matches using:
+   - Title similarity (string matching via SequenceMatcher)
+   - Artist similarity (best match between artist lists)
+   - Duration similarity (proportional time difference)
+   - Equal weights (33% each) averaged for final match score
+6. Updates the Spotify playlist (and optional popularity-sorted playlist)
 
 ### Setup Secrets
 
@@ -142,6 +155,8 @@ Go to **Actions** tab > Select any workflow > "Run workflow"
 - Python (auto-detect latest stable version)
 - [spotipy](https://github.com/spotipy-dev/spotipy) - Spotify API wrapper
 - [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) - HTML parsing
+- [openpyxl](https://openpyxl.readthedocs.io/) - Excel file generation
+- [difflib](https://docs.python.org/3/library/difflib.html) - String similarity matching
 - GitHub Actions - CI/CD automation
 
 ## License
