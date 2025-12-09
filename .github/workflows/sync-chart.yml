@@ -64,6 +64,15 @@ jobs:
           python-version: ${{ steps.python-version.outputs.version }}
           cache: 'pip'
 
+      - name: Restore Spotify cache
+        uses: actions/cache@v4
+        with:
+          path: .spotify_cache.json
+          key: spotify-cache-${{ hashFiles('requirements.txt') }}-${{ github.run_id }}
+          restore-keys: |
+            spotify-cache-${{ hashFiles('requirements.txt') }}-
+            spotify-cache-
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -143,12 +152,13 @@ jobs:
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
         run: |
-          python crawl_zingchart.py \
+          python main.py \
             --playlist \
             --headless \
             --chart-url "${{ inputs.chart_url }}" \
             --playlist-name "${{ inputs.playlist_name }}" \
             --output-file "${{ inputs.output_file }}" \
+            --min-file-size ${{ inputs.min_file_size }} \
             ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }}
 
       - name: Run ZingChart crawler (API mode for weekly charts)
@@ -158,13 +168,14 @@ jobs:
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
         run: |
-          python crawl_zingchart.py \
+          python main.py \
             --live \
             --playlist \
             --headless \
             --chart-url "${{ inputs.chart_url }}" \
             --playlist-name "${{ inputs.playlist_name }}" \
             --output-file "${{ inputs.output_file }}" \
+            --min-file-size ${{ inputs.min_file_size }} \
             ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }}
 
       - name: Upload Excel artifact

@@ -14,6 +14,6 @@ jobs:
       chart_name: 'Top 100'
       playlist_name: 'ZingMP3 Top 100'
       sorted_playlist_name: 'ZingMP3 Top 100 (sorted by Spotify popularity)'
-      output_file: 'zingchart_spotify.xlsx'
+      output_file: 'zingchart_top_100.xlsx'
       min_file_size: 100000
     secrets: inherit

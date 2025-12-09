@@ -1,3 +1,7 @@
+# Cache files (for optimization)
+.spotify_cache.json
+.proxy_cache.json
+
 # Virtual environment
 env/
 venv/
@@ -5,6 +9,7 @@ venv/
 
 # Spotify cache (contains tokens)
 .cache
+.cache-*
 
 # Environment variables (contains secrets)
 .env
@@ -22,8 +27,7 @@ __pycache__/
 *.swo
 
 # Output files (regenerated each run)
-zingchart_spotify.csv
-zingchart_weekly_*.csv
+zingchart_*.xlsx
 chart_live.html
 chart.html
 chart_files/

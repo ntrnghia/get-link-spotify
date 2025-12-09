@@ -5,12 +5,16 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 ## Features
 
 - Sync multiple ZingMP3 charts to Spotify playlists
-- Comprehensive match scoring using string similarity (title, artist, duration)
+- **Concurrent proxy testing** with early exit on first success
+- **Concurrent Spotify search** with file-based caching (24h TTL)
+- Fast string matching using [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz)
+- Comprehensive match scoring (title, artist, duration - 33% each)
 - Excel output with side-by-side ZingMP3 and Spotify data comparison
 - Optional popularity-sorted playlist creation
 - GitHub Actions automation with Vietnam proxies
 - Auto-detect latest stable Python version
 - DRY workflow architecture (reusable workflow)
+- **Benchmark tool** for testing all charts locally
 
 ## Live Playlists
 
@@ -56,35 +60,53 @@ env\Scripts\activate  # Windows
 pip install -r requirements.txt
 
 # Create .env file with your credentials
-cp .env.example .env
-# Edit .env and add your Spotify credentials
+echo "SPOTIFY_CLIENT_ID=your_client_id" > .env
+echo "SPOTIFY_CLIENT_SECRET=your_client_secret" >> .env
 ```
 
 ### 3. Usage
 
 ```bash
 # Using saved chart.html (offline)
-python crawl_zingchart.py
+python main.py
 
 # Fetch live from ZingMP3 (requires VPN to Vietnam)
-python crawl_zingchart.py --vpn
+python main.py --vpn
 
 # Fetch live using Vietnam proxies
-python crawl_zingchart.py --live
+python main.py --live
 
 # Update Spotify playlist
-python crawl_zingchart.py --playlist
+python main.py --playlist
 
 # Custom chart URL and playlist name
-python crawl_zingchart.py --live --playlist \
+python main.py --live --playlist \
   --chart-url "https://zingmp3.vn/zing-chart-tuan/bai-hat-Viet-Nam/IWZ9Z08I.html" \
   --playlist-name "ZingMP3 Weekly VN" \
   --output-file "weekly_vn.xlsx"
 
 # Create additional playlist sorted by Spotify popularity
-python crawl_zingchart.py --playlist \
+python main.py --playlist \
   --playlist-name "ZingMP3 Top 100" \
   --sorted-playlist-name "ZingMP3 Top 100 (sorted by Spotify popularity)"
+```
+
+### 4. Benchmark Tool
+
+Test performance locally with the benchmark tool:
+
+```bash
+# Benchmark Top 100 chart
+python bench.py --chart=top-100
+
+# Benchmark all charts
+python bench.py --chart=all
+
+# Clear cache before benchmark (worst-case timing)
+python bench.py --chart=top-100 --clear-cache
+
+# Skip playlist updates (faster testing)
+python bench.py --chart=top-100 --no-playlist
 ```
 
 ## GitHub Actions Automation
@@ -103,16 +125,15 @@ python crawl_zingchart.py --playlist \
 ### How It Works
 
 1. Fetches latest stable Python version from GitHub API
-2. Gets Vietnam proxy list from ProxyScrape API
-3. Tries proxies until one successfully fetches ZingMP3 chart:
+2. Restores Spotify search cache from previous runs
+3. Gets Vietnam proxies from multiple sources concurrently (ProxyScrape, Free-Proxy-List)
+4. Tests proxies concurrently (2 workers) with early exit on first success:
    - **Top 100**: Parses JSON-LD from desktop site HTML
    - **Weekly charts**: Parses mobile site (`m.zingmp3.vn`) which has server-side rendered data
-4. Retries up to 3 times per proxy for partial data
-5. Searches Spotify and scores matches using:
-   - Title similarity (string matching via SequenceMatcher)
-   - Artist similarity (best match between artist lists)
-   - Duration similarity (proportional time difference)
-   - Equal weights (33% each) averaged for final match score
+5. Searches Spotify concurrently (4 workers) with caching:
+   - Cache hits skip API calls entirely (24h TTL)
+   - Uses rapidfuzz for fast string similarity matching
+   - Scores matches using title, artist, duration (33% each)
 6. Updates the Spotify playlist (and optional popularity-sorted playlist)
 
 ### Setup Secrets
@@ -129,7 +150,7 @@ Go to your repo **Settings > Secrets and variables > Actions**, and add:
 
 1. Run locally with `--playlist` flag once:
    ```bash
-   python crawl_zingchart.py --playlist
+   python main.py --playlist
    ```
 2. Browser will open for Spotify login
 3. After login, check `.cache` file for `refresh_token`
@@ -142,21 +163,47 @@ Go to **Actions** tab > Select any workflow > "Run workflow"
 ## Project Structure
 
 ```
-.github/workflows/
-├── sync-chart.yml      # Reusable workflow (DRY)
-├── top-100.yml         # Top 100 (every hour)
-├── weekly-vn.yml       # Weekly VN (every Monday)
-├── weekly-usuk.yml     # Weekly US-UK (every Monday)
-└── weekly-kpop.yml     # Weekly K-POP (every Monday)
+├── main.py             # CLI entry point
+├── bench.py            # Benchmark tool
+├── config.py           # Centralized configuration
+├── models.py           # Type-safe dataclasses
+├── cache.py            # File-based JSON caching with TTL
+├── proxy.py            # Concurrent proxy fetching/testing
+├── spotify.py          # Concurrent Spotify search with caching
+├── zingmp3.py          # Chart parsing (HTML/JSON-LD, mobile API)
+├── workflow.py         # Unified sync logic
+├── excel.py            # Excel export
+├── .spotify_cache.json # Spotify search cache (auto-generated)
+├── .proxy_cache.json   # Working proxy cache (auto-generated)
+└── .github/workflows/
+    ├── sync-chart.yml  # Reusable workflow (DRY)
+    ├── top-100.yml     # Top 100 (every hour)
+    ├── weekly-vn.yml   # Weekly VN (every Monday)
+    ├── weekly-usuk.yml # Weekly US-UK (every Monday)
+    └── weekly-kpop.yml # Weekly K-POP (every Monday)
 ```
+
+## Configuration
+
+Key settings in `config.py`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `PROXY_TIMEOUT` | 30s | Total timeout for proxy requests (split: 15s connect, 15s read) |
+| `PROXY_TEST_WORKERS` | 2 | Concurrent proxy testing threads |
+| `PROXY_CACHE_TTL_MINUTES` | 5 | How long to cache working proxies |
+| `SPOTIFY_SEARCH_WORKERS` | 4 | Concurrent Spotify search threads |
+| `SPOTIFY_CACHE_TTL_HOURS` | 24 | How long to cache Spotify search results |
+| `CACHE_BATCH_SIZE` | 10 | Writes before flushing cache to disk |
 
 ## Tech Stack
 
-- Python (auto-detect latest stable version)
+- Python 3.11+ (auto-detect latest stable version)
 - [spotipy](https://github.com/spotipy-dev/spotipy) - Spotify API wrapper
+- [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz) - Fast string similarity matching
 - [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) - HTML parsing
 - [openpyxl](https://openpyxl.readthedocs.io/) - Excel file generation
-- [difflib](https://docs.python.org/3/library/difflib.html) - String similarity matching
+- [python-dotenv](https://github.com/theskumar/python-dotenv) - Environment variable loading
 - GitHub Actions - CI/CD automation
 
 ## License
