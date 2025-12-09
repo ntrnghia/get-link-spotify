@@ -44,7 +44,7 @@ SPOTIFY_RETRY_DELAY = 2.0  # Base delay for exponential backoff (seconds)
 # CACHE TTL
 # =============================================================================
 SPOTIFY_CACHE_TTL_HOURS = 24  # How long to cache Spotify search results
-PROXY_CACHE_TTL_MINUTES = 5  # How long to cache working proxies (short - proxies die fast)
+PROXY_CACHE_TTL_MINUTES = 120  # How long to cache working proxies (2 hours for CI)
 CACHE_BATCH_SIZE = 10  # Number of writes before flushing to disk
 
 # =============================================================================

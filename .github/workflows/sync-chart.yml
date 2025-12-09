@@ -1,4 +1,5 @@
 # Reusable workflow for syncing ZingMP3 charts to Spotify
+# Uses Python's concurrent proxy testing with caching
 name: Sync ZingMP3 Chart (Reusable)
 
 on:
@@ -64,105 +65,20 @@ jobs:
           python-version: ${{ steps.python-version.outputs.version }}
           cache: 'pip'
 
-      - name: Restore Spotify cache
+      - name: Restore caches
         uses: actions/cache@v4
         with:
-          path: .spotify_cache.json
-          key: spotify-cache-${{ hashFiles('requirements.txt') }}-${{ github.run_id }}
+          path: |
+            .spotify_cache.json
+            .proxy_cache.json
+          key: app-cache-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            spotify-cache-${{ hashFiles('requirements.txt') }}-
-            spotify-cache-
+            app-cache-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Check chart type
-        id: chart-type
-        run: |
-          if echo "${{ inputs.chart_url }}" | grep -q "zing-chart-tuan"; then
-            echo "is_weekly=true" >> $GITHUB_OUTPUT
-            echo "Chart type: Weekly (will use API mode)"
-          else
-            echo "is_weekly=false" >> $GITHUB_OUTPUT
-            echo "Chart type: Regular (will use HTML mode)"
-          fi
-
-      - name: Fetch ${{ inputs.chart_name }} via Vietnam proxy (HTML mode)
-        if: steps.chart-type.outputs.is_weekly != 'true'
-        run: |
-          echo "Fetching ${{ inputs.chart_name }} via Vietnam proxies..."
-          echo "URL: ${{ inputs.chart_url }}"
-          echo ""
-
-          # Fetch fresh Vietnam proxies from proxyscrape API v4 (remove Windows line endings)
-          proxies=$(curl -s --max-time 15 "https://api.proxyscrape.com/v4/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=vn&ssl=all&anonymity=all&skip=0&limit=100" 2>/dev/null | tr -d '\r') || true
-
-          if [ -z "$proxies" ]; then
-            echo "ERROR: Failed to fetch proxy list from API"
-            exit 1
-          fi
-
-          total=$(echo "$proxies" | wc -l)
-          echo "Got $total proxies from API"
-          echo ""
-
-          success=false
-          count=0
-
-          for proxy in $proxies; do
-            count=$((count + 1))
-            echo "[$count/$total] Trying proxy $proxy..."
-
-            # Retry up to 3 times for partial data
-            for retry in 1 2 3; do
-              # Fetch with timeout
-              curl -s --compressed --proxy "http://$proxy" --connect-timeout 10 --max-time 30 "${{ inputs.chart_url }}" -o chart_live.html 2>/dev/null || true
-
-              # Check if we got complete chart data
-              if grep -q "MusicPlaylist" chart_live.html 2>/dev/null; then
-                filesize=$(wc -c < chart_live.html)
-                if [ "$filesize" -gt ${{ inputs.min_file_size }} ]; then
-                  echo "  SUCCESS: Got chart data ($filesize bytes)"
-                  grep -o '"name":"[^"]*"' chart_live.html | head -3
-                  success=true
-                  break 2  # Break both loops
-                else
-                  echo "  Attempt $retry/3: Partial data ($filesize bytes, need >${{ inputs.min_file_size }})"
-                  rm -f chart_live.html
-                  sleep 1
-                fi
-              else
-                echo "  FAIL: No chart data"
-                rm -f chart_live.html
-                break  # No point retrying if no data at all
-              fi
-            done
-          done
-
-          if [ "$success" != "true" ]; then
-            echo ""
-            echo "ERROR: No working proxy found after $count attempts!"
-            exit 1
-          fi
-
-      - name: Run ZingChart crawler (HTML mode)
-        if: steps.chart-type.outputs.is_weekly != 'true'
-        env:
-          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
-        run: |
-          python main.py \
-            --playlist \
-            --headless \
-            --chart-url "${{ inputs.chart_url }}" \
-            --playlist-name "${{ inputs.playlist_name }}" \
-            --output-file "${{ inputs.output_file }}" \
-            --min-file-size ${{ inputs.min_file_size }} \
-            ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }}
-
-      - name: Run ZingChart crawler (API mode for weekly charts)
-        if: steps.chart-type.outputs.is_weekly == 'true'
+      - name: Sync ${{ inputs.chart_name }} to Spotify
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}

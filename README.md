@@ -191,7 +191,7 @@ Key settings in `config.py`:
 |---------|---------|-------------|
 | `PROXY_TIMEOUT` | 30s | Total timeout for proxy requests (split: 15s connect, 15s read) |
 | `PROXY_TEST_WORKERS` | 2 | Concurrent proxy testing threads |
-| `PROXY_CACHE_TTL_MINUTES` | 5 | How long to cache working proxies |
+| `PROXY_CACHE_TTL_MINUTES` | 120 | How long to cache working proxies (2 hours) |
 | `SPOTIFY_SEARCH_WORKERS` | 4 | Concurrent Spotify search threads |
 | `SPOTIFY_CACHE_TTL_HOURS` | 24 | How long to cache Spotify search results |
 | `CACHE_BATCH_SIZE` | 10 | Writes before flushing cache to disk |
