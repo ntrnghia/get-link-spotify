@@ -109,11 +109,28 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Delete old cache
+      - name: Delete old cache and save new
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh cache delete "app-cache-${{ hashFiles('requirements.txt') }}" --repo ${{ github.repository }} || true
+        run: |
+          CACHE_KEY="app-cache-${{ hashFiles('requirements.txt') }}"
+          echo "Cache key: $CACHE_KEY"
+          
+          # List existing caches to debug
+          echo "Existing caches:"
+          gh cache list --repo ${{ github.repository }} | grep "app-cache" || echo "No app-cache found"
+          
+          # Delete the cache (ignore errors if not found)
+          echo "Deleting cache..."
+          gh cache delete "$CACHE_KEY" --repo ${{ github.repository }} 2>/dev/null || echo "Cache not found or already deleted"
+          
+          # Wait a moment for GitHub to process the deletion
+          sleep 2
+          
+          # Verify deletion
+          echo "Caches after deletion:"
+          gh cache list --repo ${{ github.repository }} | grep "app-cache" || echo "No app-cache found"
 
       - name: Save caches
         uses: actions/cache/save@v4
