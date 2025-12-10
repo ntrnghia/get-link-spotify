@@ -1,9 +1,7 @@
-"""
-Spotify API wrapper with concurrent search and caching.
-Uses rapidfuzz for fast string matching.
-"""
+"""Spotify API wrapper with concurrent search and caching."""
 
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
@@ -12,153 +10,80 @@ from rapidfuzz import fuzz
 from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 
 from cache import get_spotify_cache
-from config import (
-    PLAYLIST_BATCH_SIZE,
-    REQUEST_DELAY,
-    SPOTIFY_CLIENT_ID,
-    SPOTIFY_CLIENT_SECRET,
-    SPOTIFY_REDIRECT_URI,
-    SPOTIFY_RETRY_ATTEMPTS,
-    SPOTIFY_RETRY_DELAY,
-    SPOTIFY_SEARCH_LIMIT,
-    SPOTIFY_SEARCH_WORKERS,
-)
-
-import time
+from config import (PLAYLIST_BATCH_SIZE, REQUEST_DELAY, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
+                    SPOTIFY_REDIRECT_URI, SPOTIFY_RETRY_ATTEMPTS, SPOTIFY_RETRY_DELAY,
+                    SPOTIFY_SEARCH_LIMIT, SPOTIFY_SEARCH_WORKERS)
 
 
 def get_spotify_client() -> spotipy.Spotify:
     """Initialize Spotify client with client credentials (read-only)."""
-    auth_manager = SpotifyClientCredentials(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET,
-    )
-    return spotipy.Spotify(auth_manager=auth_manager)
+    return spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET))
 
 
 def get_spotify_client_with_auth() -> spotipy.Spotify:
-    """Initialize Spotify client with user authorization (for playlist management).
-
-    First time: Opens browser for user login.
-    Subsequent runs: Uses cached token from .cache file.
-    """
-    auth_manager = SpotifyOAuth(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET,
-        redirect_uri=SPOTIFY_REDIRECT_URI,
-        scope="playlist-modify-public playlist-modify-private",
-    )
-    return spotipy.Spotify(auth_manager=auth_manager)
+    """Initialize Spotify client with user authorization (for playlist management)."""
+    return spotipy.Spotify(auth_manager=SpotifyOAuth(
+        client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET,
+        redirect_uri=SPOTIFY_REDIRECT_URI, scope="playlist-modify-public playlist-modify-private"))
 
 
 def get_spotify_client_headless() -> spotipy.Spotify:
-    """Initialize Spotify client using refresh token (for CI/headless mode).
-
-    Requires SPOTIFY_REFRESH_TOKEN environment variable.
-    """
-    refresh_token = os.environ.get("SPOTIFY_REFRESH_TOKEN")
-    if not refresh_token:
+    """Initialize Spotify client using refresh token (for CI/headless mode)."""
+    if not (refresh_token := os.environ.get("SPOTIFY_REFRESH_TOKEN")):
         raise ValueError("SPOTIFY_REFRESH_TOKEN environment variable not set")
-
-    auth_manager = SpotifyOAuth(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET,
-        redirect_uri=SPOTIFY_REDIRECT_URI,
-        scope="playlist-modify-public playlist-modify-private",
-        open_browser=False,
-    )
-
-    # Create token info and refresh it
-    token_info = auth_manager.refresh_access_token(refresh_token)
-    return spotipy.Spotify(auth=token_info["access_token"])
+    auth = SpotifyOAuth(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET,
+                        redirect_uri=SPOTIFY_REDIRECT_URI, scope="playlist-modify-public playlist-modify-private",
+                        open_browser=False)
+    return spotipy.Spotify(auth=auth.refresh_access_token(refresh_token)["access_token"])
 
 
-def string_similarity(a: str, b: str) -> float:
-    """Calculate string similarity ratio (0.0 to 1.0) using rapidfuzz."""
-    if not a or not b:
-        return 0.0
-    return fuzz.ratio(a.lower(), b.lower()) / 100.0
+def _similarity(a: str, b: str) -> float:
+    return fuzz.ratio(a.lower(), b.lower()) / 100.0 if a and b else 0.0
 
 
-def duration_to_seconds(duration_str: str) -> int | None:
-    """Convert duration string (M:SS or H:MM:SS) to seconds."""
-    if not duration_str:
+def _duration_to_sec(d: str) -> int | None:
+    if not d:
         return None
-    parts = duration_str.split(":")
+    parts = d.split(":")
     try:
-        if len(parts) == 2:
-            return int(parts[0]) * 60 + int(parts[1])
-        elif len(parts) == 3:
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        return sum(int(p) * m for p, m in zip(reversed(parts), [1, 60, 3600]))
     except ValueError:
         return None
-    return None
 
 
-def duration_similarity(zing_duration: str, spotify_ms: int) -> float:
-    """Compare durations using proportional difference.
-
-    Formula: 1 - |diff| / max(zing_sec, spotify_sec)
-    Returns similarity 0.0 to 1.0.
-    """
-    zing_sec = duration_to_seconds(zing_duration)
-    if zing_sec is None or zing_sec == 0:
-        return 0.5  # No data, neutral score
-    spotify_sec = spotify_ms // 1000
-    if spotify_sec == 0:
+def _duration_sim(zing_dur: str, spotify_ms: int) -> float:
+    zing_sec = _duration_to_sec(zing_dur)
+    if not zing_sec:
         return 0.5
-
-    diff = abs(zing_sec - spotify_sec)
-    max_duration = max(zing_sec, spotify_sec)
-    similarity = 1.0 - (diff / max_duration)
-
-    return max(0.0, similarity)
+    spotify_sec = spotify_ms // 1000
+    if not spotify_sec:
+        return 0.5
+    return max(0.0, 1.0 - abs(zing_sec - spotify_sec) / max(zing_sec, spotify_sec))
 
 
-def artist_similarity(zing_artists: list[str], spotify_artists: list[dict]) -> float:
-    """Compare artist lists, return similarity 0.0 to 1.0."""
+def _artist_sim(zing_artists: list[str], spotify_artists: list[dict]) -> float:
     if not zing_artists or not spotify_artists:
-        return 0.5  # No data, neutral score
-
-    spotify_names = [a["name"] for a in spotify_artists]
-
-    # Find best match between any ZingMP3 artist and any Spotify artist
-    best_match = 0.0
-    for zing_artist in zing_artists:
-        for spotify_artist in spotify_names:
-            sim = string_similarity(zing_artist, spotify_artist)
-            best_match = max(best_match, sim)
-
-    return best_match
+        return 0.5
+    return max(_similarity(za, sa["name"]) for za in zing_artists for sa in spotify_artists)
 
 
-def calculate_match_score(song: dict, spotify_track: dict) -> float:
-    """Calculate comprehensive match score between ZingMP3 song and Spotify track.
-
-    Returns score from 0.0 to 1.0 (higher = better match).
-    Uses equal weights for: Title, Artist, Duration (33.3% each)
-    """
-    title_sim = string_similarity(song["name"], spotify_track["name"])
-    artist_sim = artist_similarity(
-        song.get("artist_list", []), spotify_track.get("artists", [])
-    )
-    duration_sim = duration_similarity(
-        song.get("duration", ""), spotify_track.get("duration_ms", 0)
-    )
-
-    # Simple average of 3 fields (equal weights)
-    return (title_sim + artist_sim + duration_sim) / 3
+def _match_score(song: dict, track: dict) -> float:
+    """Calculate match score (0-1) using title, artist, duration."""
+    return (
+        _similarity(song["name"], track["name"]) +
+        _artist_sim(song.get("artist_list", []), track.get("artists", [])) +
+        _duration_sim(song.get("duration", ""), track.get("duration_ms", 0))
+    ) / 3
 
 
 def _search_with_retry(sp: spotipy.Spotify, query: str) -> dict | None:
-    """Execute Spotify search with exponential backoff retry."""
     for attempt in range(SPOTIFY_RETRY_ATTEMPTS):
         try:
             return sp.search(q=query, type="track", limit=SPOTIFY_SEARCH_LIMIT)
         except spotipy.exceptions.SpotifyException as e:
-            if e.http_status == 429:  # Rate limited
-                delay = SPOTIFY_RETRY_DELAY * (2 ** attempt)
-                time.sleep(delay)
+            if e.http_status == 429:
+                time.sleep(SPOTIFY_RETRY_DELAY * (2 ** attempt))
                 continue
             raise
         except Exception:
@@ -169,231 +94,103 @@ def _search_with_retry(sp: spotipy.Spotify, query: str) -> dict | None:
     return None
 
 
+def _build_queries(song: dict) -> list[str]:
+    """Build search queries for a song."""
+    name, artists = song["name"], song.get("artist_list", [])
+    queries = []
+    if artists:
+        queries.extend([f'track:"{name}" artist:"{artists[0]}"', f"{name} {artists[0]}"])
+    queries.append(name)
+    return queries
+
+
+def _format_result(track: dict, score: float) -> dict:
+    """Format Spotify track as result dict."""
+    duration_ms = track.get("duration_ms", 0)
+    return {
+        "spotify_name": track["name"],
+        "spotify_artist": ", ".join(a["name"] for a in track["artists"]),
+        "spotify_album": track["album"].get("name", ""),
+        "spotify_duration": f"{duration_ms // 60000}:{(duration_ms % 60000) // 1000:02d}" if duration_ms else "",
+        "spotify_url": track["external_urls"].get("spotify", ""),
+        "popularity": track.get("popularity", 0),
+        "track_uri": track["uri"],
+        "match_score": score,
+    }
+
+
 def search_spotify_single(sp: spotipy.Spotify, song: dict) -> dict | None:
-    """Search for a single song on Spotify (no caching).
-
-    Args:
-        sp: Spotify client
-        song: Dict with name, artists, artist_list, duration, url
-
-    Returns dict with Spotify fields + match_score, or None if not found
-    """
-    song_name = song["name"]
-    artists = song.get("artist_list", [])
-
-    # Try different search strategies
-    search_queries = []
-
-    # Strategy 1: Full search with song name and first artist
-    if artists:
-        search_queries.append(f'track:"{song_name}" artist:"{artists[0]}"')
-
-    # Strategy 2: Just song name and artist without quotes
-    if artists:
-        search_queries.append(f"{song_name} {artists[0]}")
-
-    # Strategy 3: Just song name
-    search_queries.append(song_name)
-
-    for query in search_queries:
+    """Search for a single song on Spotify."""
+    for query in _build_queries(song):
         try:
-            results = _search_with_retry(sp, query)
-            if results is None:
+            if not (results := _search_with_retry(sp, query)):
                 continue
-            tracks = results.get("tracks", {}).get("items", [])
-
-            if tracks:
-                # Score each track and pick the best match
-                best_track = None
-                best_score = -1
-
-                for track in tracks:
-                    score = calculate_match_score(song, track)
-                    if score > best_score:
-                        best_score = score
-                        best_track = track
-
-                if best_track:
-                    # Convert duration_ms to M:SS format
-                    duration_ms = best_track.get("duration_ms", 0)
-                    if duration_ms:
-                        minutes = duration_ms // 60000
-                        seconds = (duration_ms % 60000) // 1000
-                        spotify_duration = f"{minutes}:{seconds:02d}"
-                    else:
-                        spotify_duration = ""
-
-                    return {
-                        "spotify_name": best_track["name"],
-                        "spotify_artist": ", ".join(
-                            [a["name"] for a in best_track["artists"]]
-                        ),
-                        "spotify_album": best_track["album"].get("name", ""),
-                        "spotify_duration": spotify_duration,
-                        "spotify_url": best_track["external_urls"].get("spotify", ""),
-                        "popularity": best_track.get("popularity", 0),
-                        "track_uri": best_track["uri"],
-                        "match_score": best_score,
-                    }
+            if tracks := results.get("tracks", {}).get("items", []):
+                best = max(tracks, key=lambda t: _match_score(song, t))
+                return _format_result(best, _match_score(song, best))
         except Exception as e:
             print(f"  Search error for '{query}': {e}")
-            continue
-
     return None
 
 
-def search_spotify(sp: spotipy.Spotify, song: dict) -> tuple[dict | None, bool]:
-    """Search for a song on Spotify with caching.
-
-    Returns:
-        Tuple of (result_dict, was_cached)
-    """
-    cache = get_spotify_cache()
-    artists = song.get("artists", "")
-
-    # Check cache first
-    cached = cache.get_song(song["name"], artists)
-    if cached is not None:
-        return cached, True
-
-    # Search Spotify
-    result = search_spotify_single(sp, song)
-
-    # Cache result (even if None, to avoid repeated searches)
-    if result is not None:
-        cache.set_song(song["name"], artists, result)
-    else:
-        # Cache negative result with empty dict
-        cache.set_song(song["name"], artists, {})
-
-    return result, False
-
-
 def search_songs_concurrent(
-    sp: spotipy.Spotify,
-    songs: list[dict],
+    sp: spotipy.Spotify, songs: list[dict],
     progress_callback: Callable[[int, dict, dict | None, bool], None] | None = None,
 ) -> list[dict]:
-    """Search for multiple songs concurrently with caching.
-
-    Optimized flow:
-    1. Check cache synchronously for all songs (instant)
-    2. Only submit cache misses to ThreadPoolExecutor
-
-    Args:
-        sp: Spotify client
-        songs: List of song dicts
-        progress_callback: Optional callback(index, song, result, was_cached)
-
-    Returns:
-        List of result dicts in same order as input songs
-    """
+    """Search for multiple songs concurrently with caching."""
     cache = get_spotify_cache()
     results = [None] * len(songs)
-    cache_hits = 0
-    cache_misses_indices = []  # Track indices that need API calls
+    cache_misses = []
 
-    # Phase 1: Check cache synchronously for all songs (instant)
+    # Phase 1: Check cache
     for i, song in enumerate(songs):
-        artists = song.get("artists", "")
-        cached = cache.get_song(song["name"], artists)
-        
-        if cached is not None:
-            # Cache hit - use cached result directly
-            result = cached if cached != {} else None
-            results[i] = result
-            cache_hits += 1
+        if (cached := cache.get_song(song["name"], song.get("artists", ""))) is not None:
+            results[i] = cached if cached != {} else None
             if progress_callback:
-                progress_callback(i, song, result, True)
+                progress_callback(i, song, results[i], True)
         else:
-            # Cache miss - need to fetch from API
-            cache_misses_indices.append(i)
+            cache_misses.append(i)
 
-    # Phase 2: Fetch only cache misses concurrently
-    if cache_misses_indices:
-        def search_with_index(index: int) -> tuple[int, dict | None]:
-            song = songs[index]
+    # Phase 2: Fetch misses concurrently
+    if cache_misses:
+        def search_idx(idx: int) -> tuple[int, dict | None]:
+            song = songs[idx]
             result = search_spotify_single(sp, song)
-            
-            # Cache the result
-            artists = song.get("artists", "")
-            if result is not None:
-                cache.set_song(song["name"], artists, result)
-            else:
-                cache.set_song(song["name"], artists, {})
-            
-            time.sleep(REQUEST_DELAY)  # Small delay to avoid rate limiting
-            return index, result
+            cache.set_song(song["name"], song.get("artists", ""), result if result else {})
+            time.sleep(REQUEST_DELAY)
+            return idx, result
 
         with ThreadPoolExecutor(max_workers=SPOTIFY_SEARCH_WORKERS) as executor:
-            futures = {
-                executor.submit(search_with_index, i): i
-                for i in cache_misses_indices
-            }
-
-            for future in as_completed(futures):
-                index, result = future.result()
-                results[index] = result
-
+            for future in as_completed({executor.submit(search_idx, i): i for i in cache_misses}):
+                idx, result = future.result()
+                results[idx] = result
                 if progress_callback:
-                    progress_callback(index, songs[index], result, False)
+                    progress_callback(idx, songs[idx], result, False)
 
-    print(f"  Cache: {cache_hits} hits, {len(cache_misses_indices)} misses")
+    print(f"  Cache: {len(songs) - len(cache_misses)} hits, {len(cache_misses)} misses")
     return results
 
 
-def create_or_get_playlist(
-    sp: spotipy.Spotify, playlist_name: str, chart_url: str = ""
-) -> tuple[str, bool]:
-    """Create playlist or get existing one.
-
-    Returns tuple of (playlist_id, is_new).
-    """
+def create_or_get_playlist(sp: spotipy.Spotify, name: str, chart_url: str = "") -> tuple[str, bool]:
+    """Create playlist or get existing one. Returns (playlist_id, is_new)."""
     user_id = sp.current_user()["id"]
-
-    # Search existing playlists
     playlists = sp.current_user_playlists(limit=50)
     while playlists:
-        for playlist in playlists["items"]:
-            if playlist["name"] == playlist_name:
-                return playlist["id"], False
+        for p in playlists["items"]:
+            if p["name"] == name:
+                return p["id"], False
+        playlists = sp.next(playlists) if playlists["next"] else None
 
-        # Get next page
-        if playlists["next"]:
-            playlists = sp.next(playlists)
-        else:
-            break
-
-    # Create new playlist
-    description = (
-        f"ZingMP3 Chart - Auto-updated by ZingChart Crawler - {chart_url}"
-        if chart_url
-        else "ZingMP3 Chart - Auto-updated by ZingChart Crawler"
-    )
-    new_playlist = sp.user_playlist_create(
-        user=user_id, name=playlist_name, public=True, description=description
-    )
-    return new_playlist["id"], True
+    desc = f"ZingMP3 Chart - Auto-updated by ZingChart Crawler{f' - {chart_url}' if chart_url else ''}"
+    return sp.user_playlist_create(user=user_id, name=name, public=True, description=desc)["id"], True
 
 
 def update_playlist(sp: spotipy.Spotify, playlist_id: str, track_uris: list[str]) -> int:
-    """Replace all tracks in playlist with new ones.
-
-    Returns number of tracks added.
-    """
-    # Filter out None/empty track URIs
-    valid_uris = [uri for uri in track_uris if uri]
-
-    if not valid_uris:
+    """Replace all tracks in playlist. Returns count added."""
+    uris = [u for u in track_uris if u]
+    if not uris:
         return 0
-
-    # Clear existing tracks by replacing with new ones
-    sp.playlist_replace_items(playlist_id, valid_uris[:PLAYLIST_BATCH_SIZE])
-
-    # If more than batch size, add the rest
-    if len(valid_uris) > PLAYLIST_BATCH_SIZE:
-        for i in range(PLAYLIST_BATCH_SIZE, len(valid_uris), PLAYLIST_BATCH_SIZE):
-            batch = valid_uris[i : i + PLAYLIST_BATCH_SIZE]
-            sp.playlist_add_items(playlist_id, batch)
-
-    return len(valid_uris)
+    sp.playlist_replace_items(playlist_id, uris[:PLAYLIST_BATCH_SIZE])
+    for i in range(PLAYLIST_BATCH_SIZE, len(uris), PLAYLIST_BATCH_SIZE):
+        sp.playlist_add_items(playlist_id, uris[i:i + PLAYLIST_BATCH_SIZE])
+    return len(uris)
