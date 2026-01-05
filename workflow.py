@@ -170,8 +170,10 @@ def sync_to_playlists(
     playlist_id, is_new = create_or_get_playlist(sp, playlist_name, chart_url)
     action = "Created" if is_new else "Updated"
     tracks_added = update_playlist(sp, playlist_id, track_uris)
+    url = f"https://open.spotify.com/playlist/{playlist_id}"
     print(f"  {action} playlist '{playlist_name}' ({tracks_added} tracks)")
-    playlist_urls[playlist_name] = f"https://open.spotify.com/playlist/{playlist_id}"
+    print(f"    {url}")
+    playlist_urls[playlist_name] = url
 
     # Sorted by popularity playlist (optional) - most popular first
     if sorted_playlist_name:
@@ -185,8 +187,10 @@ def sync_to_playlists(
         sorted_id, is_new = create_or_get_playlist(sp, sorted_playlist_name, chart_url)
         action = "Created" if is_new else "Updated"
         update_playlist(sp, sorted_id, sorted_uris)
+        url = f"https://open.spotify.com/playlist/{sorted_id}"
         print(f"  {action} sorted playlist '{sorted_playlist_name}'")
-        playlist_urls[sorted_playlist_name] = f"https://open.spotify.com/playlist/{sorted_id}"
+        print(f"    {url}")
+        playlist_urls[sorted_playlist_name] = url
 
     # Trending playlist (optional) - sorted by normalized rank + popularity (low = new & trending)
     if trending_playlist_name:
@@ -218,8 +222,10 @@ def sync_to_playlists(
             trending_id, is_new = create_or_get_playlist(sp, trending_playlist_name, chart_url)
             action = "Created" if is_new else "Updated"
             update_playlist(sp, trending_id, trending_uris)
+            url = f"https://open.spotify.com/playlist/{trending_id}"
             print(f"  {action} trending playlist '{trending_playlist_name}'")
-            playlist_urls[trending_playlist_name] = f"https://open.spotify.com/playlist/{trending_id}"
+            print(f"    {url}")
+            playlist_urls[trending_playlist_name] = url
 
     return playlist_urls
 
