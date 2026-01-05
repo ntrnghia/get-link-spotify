@@ -88,8 +88,8 @@ def _sync_playlists(sp: spotipy.Spotify, results: list[SyncResult], uris: list[s
             continue
         pid, is_new = create_or_get_playlist(sp, name, chart_url)
         count = update_playlist(sp, pid, playlist_uris)
-        print(f"  {'Created' if is_new else 'Updated'} playlist '{name}' ({count} tracks)")
         urls[name] = f"https://open.spotify.com/playlist/{pid}"
+        print(f"  {'Created' if is_new else 'Updated'} playlist '{name}' ({count} tracks): {urls[name]}")
 
     return urls
 
