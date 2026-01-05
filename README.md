@@ -19,8 +19,8 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 
 | Playlist | Songs | Schedule | Link |
 |----------|-------|----------|------|
-| ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/6F4Uq6BABSn6HupOIrXheZ) |
-| ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/64TpllojsS4Tj4n8eyIgu3) |
+| ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/2Ntc48qdwn8rlXiQqJbwLd) |
+| ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/5lYHZVcQmu0sshlR5qarpv) |
 | ZingMP3 Top 100 (new & trending) | 100 | Every hour | [Open](https://open.spotify.com/playlist/7o2ONM6WfOd60T5WkKaaJn) |
 | ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
