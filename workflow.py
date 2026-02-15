@@ -146,6 +146,8 @@ def sync_to_playlists(
     chart_url: str = "",
     sorted_playlist_name: str = "",
     trending_playlist_name: str = "",
+    filtered_playlist_name: str = "",
+    filter_keywords: list[str] | None = None,
 ) -> dict[str, str]:
     """Sync results to Spotify playlists.
 
@@ -157,6 +159,8 @@ def sync_to_playlists(
         chart_url: Chart URL for playlist description
         sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
         trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
+        filtered_playlist_name: Optional playlist with songs filtered by keywords
+        filter_keywords: Keywords to filter songs by name (used with filtered_playlist_name)
 
     Returns:
         Dict of playlist names to URLs
@@ -227,6 +231,25 @@ def sync_to_playlists(
             print(f"    {url}")
             playlist_urls[trending_playlist_name] = url
 
+    # Filtered playlist (optional) - songs matching keywords, in original chart order
+    if filtered_playlist_name and filter_keywords:
+        keywords_lower = [kw.lower() for kw in filter_keywords]
+        filtered_results = [
+            r for r in results
+            if r.found and any(kw in r.song_name.lower() for kw in keywords_lower)
+        ]
+        filtered_uris = [r.track_uri for r in filtered_results]
+
+        if filtered_uris:
+            filtered_id, is_new = create_or_get_playlist(sp, filtered_playlist_name, chart_url)
+            action = "Created" if is_new else "Updated"
+            update_playlist(sp, filtered_id, filtered_uris)
+            url = f"https://open.spotify.com/playlist/{filtered_id}"
+            print(f"  {action} filtered playlist '{filtered_playlist_name}' ({len(filtered_uris)} tracks, keywords: {', '.join(filter_keywords)})")
+            print(f"    {url}")
+            playlist_urls[filtered_playlist_name] = url
+        else:
+            print(f"  Skipped filtered playlist '{filtered_playlist_name}' (no songs matched keywords: {', '.join(filter_keywords)})")
     return playlist_urls
 
 
@@ -237,6 +260,8 @@ def run_chart_sync(
     playlist_name: str | None = None,
     sorted_playlist_name: str = "",
     trending_playlist_name: str = "",
+    filtered_playlist_name: str = "",
+    filter_keywords: list[str] | None = None,
     headless: bool = False,
     min_file_size: int = 0,
     save_html: bool = False,
@@ -251,6 +276,8 @@ def run_chart_sync(
         playlist_name: Spotify playlist name (None to skip playlist)
         sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
         trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
+        filtered_playlist_name: Optional playlist with songs filtered by keywords
+        filter_keywords: Keywords to filter songs by name (used with filtered_playlist_name)
         headless: Use headless Spotify auth
         min_file_size: Minimum HTML size to consider valid
         save_html: Save fetched HTML to file
@@ -315,6 +342,8 @@ def run_chart_sync(
             chart_url,
             sorted_playlist_name,
             trending_playlist_name,
+            filtered_playlist_name,
+            filter_keywords,
         )
 
     return output

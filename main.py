@@ -78,6 +78,18 @@ def main() -> None:
         default=0,
         help="Minimum file size in bytes to consider valid",
     )
+    parser.add_argument(
+        "--filtered-playlist-name",
+        type=str,
+        default="",
+        help="Create playlist with songs filtered by keywords (optional)",
+    )
+    parser.add_argument(
+        "--filter-keywords",
+        type=str,
+        default="",
+        help='Comma-separated keywords to filter songs by name (e.g. "Tết,Xuân,Năm nay")',
+    )
     args = parser.parse_args()
 
     # Determine mode
@@ -97,6 +109,8 @@ def main() -> None:
         print(f"Playlist: Will create/update '{args.playlist_name}'")
     if args.headless:
         print("Auth: Headless mode (using refresh token)")
+    if args.filter_keywords:
+        print(f"Filter: songs matching '{args.filter_keywords}'")
     print(f"Output: {PROJECT_ROOT / args.output_file}")
     print("=" * 60)
 
@@ -111,6 +125,12 @@ def main() -> None:
         else:
             print(f"  [{pos:3d}] {name[:30]:30s} NOT FOUND{cache_tag}")
 
+    # Parse filter keywords
+    filter_keywords = (
+        [k.strip() for k in args.filter_keywords.split(",") if k.strip()]
+        if args.filter_keywords
+        else []
+    )
     # Run sync
     print("\nFetching chart and syncing to Spotify...")
     output = run_chart_sync(
@@ -120,6 +140,8 @@ def main() -> None:
         playlist_name=args.playlist_name if args.playlist else None,
         sorted_playlist_name=args.sorted_playlist_name,
         trending_playlist_name=args.trending_playlist_name,
+        filtered_playlist_name=args.filtered_playlist_name,
+        filter_keywords=filter_keywords,
         headless=args.headless,
         min_file_size=args.min_file_size,
         save_html=args.save_html,
