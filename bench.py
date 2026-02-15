@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Benchmark tool for ZingMP3-Spotify sync."""
+"""
+Benchmark tool for ZingMP3-Spotify sync.
+
+Simulates GitHub Actions workflows locally with timing and cache statistics.
+Usage:
+    python bench.py --chart=top-100
+    python bench.py --chart=weekly-vn
+    python bench.py --chart=all
+    python bench.py --chart=top-100 --clear-cache
+    python bench.py --chart=top-100 --no-playlist
+"""
 
 import argparse
 import time
@@ -11,69 +21,149 @@ from workflow import run_chart_sync
 
 
 @dataclass
-class BenchResult:
-    name: str
-    total: int = 0
-    found: int = 0
-    cached: int = 0
-    time: float = 0.0
+class BenchmarkResult:
+    """Stores timing and statistics for a benchmark run."""
 
-    def print(self) -> None:
-        print(f"\n{'═' * 75}\nBenchmark: {self.name}\n{'═' * 75}")
-        print(f"Songs found: {self.found}/{self.total}\nCache: {self.cached} hits, {self.total - self.cached} misses")
-        print(f"Total time: {self.time:.2f}s\n{'═' * 75}")
+    chart_name: str
+    total_songs: int = 0
+    songs_found: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    total_time: float = 0.0
+
+    def print_summary(self) -> None:
+        print(f"\n{'═' * 75}")
+        print(f"Benchmark: {self.chart_name}")
+        print(f"{'═' * 75}")
+        print(f"Songs found: {self.songs_found}/{self.total_songs}")
+        print(f"Cache: {self.cache_hits} hits, {self.cache_misses} misses")
+        print(f"Total time: {self.total_time:.2f}s")
+        print(f"{'═' * 75}")
 
 
-def run_benchmark(chart_key: str, no_playlist: bool = False, headless: bool = False) -> BenchResult:
+def run_benchmark(
+    chart_key: str,
+    no_playlist: bool = False,
+    headless: bool = False,
+) -> BenchmarkResult:
+    """Run benchmark for a single chart.
+
+    Args:
+        chart_key: Key from CHARTS config (e.g., 'top-100', 'weekly-vn')
+        no_playlist: Skip playlist creation/update
+        headless: Use headless Spotify auth
+
+    Returns:
+        BenchmarkResult with timing and statistics
+    """
     chart = CHARTS[chart_key]
-    result = BenchResult(name=f"{chart_key} ({chart['name']})")
+    result = BenchmarkResult(chart_name=f"{chart_key} ({chart['name']})")
 
-    print(f"\n{'=' * 75}\nRunning benchmark: {chart['name']}\nURL: {chart['url']}\nMode: {chart['mode']}\n{'=' * 75}")
+    print(f"\n{'=' * 75}")
+    print(f"Running benchmark: {chart['name']}")
+    print(f"URL: {chart['url']}")
+    print(f"Mode: {chart['mode']}")
+    print(f"{'=' * 75}")
 
     start = time.time()
+
+    # Use unified workflow
     output = run_chart_sync(
-        chart_url=chart["url"], mode=chart["mode"], output_file=chart["output_file"],
+        chart_url=chart["url"],
+        mode=chart["mode"],
+        output_file=chart["output_file"],
         playlist_name=chart["playlist"] if not no_playlist else None,
         sorted_playlist_name=chart.get("sorted_playlist", "") if not no_playlist else "",
         trending_playlist_name=chart.get("trending_playlist", "") if not no_playlist else "",
-        headless=headless, min_file_size=chart["min_file_size"],
+        filtered_playlist_name=chart.get("filtered_playlist", "") if not no_playlist else "",
+        filter_keywords=chart.get("filter_keywords"),
+        headless=headless,
+        min_file_size=chart["min_file_size"],
+        save_html=False,
+        progress_callback=None,  # Silent for benchmark
     )
-    result.time = time.time() - start
+
+    result.total_time = time.time() - start
 
     if output.results:
-        result.total, result.found, result.cached = output.stats.total_songs, output.stats.songs_found, output.stats.cache_hits
+        result.total_songs = output.stats.total_songs
+        result.songs_found = output.stats.songs_found
+        result.cache_hits = output.stats.cache_hits
+        result.cache_misses = output.stats.cache_misses
 
-    result.print()
+    result.print_summary()
     return result
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark ZingMP3-Spotify sync")
-    parser.add_argument("--chart", type=str, required=True, choices=list(CHARTS.keys()) + ["all"])
-    parser.add_argument("--clear-cache", action="store_true", help="Clear caches first")
-    parser.add_argument("--no-playlist", action="store_true", help="Skip playlist updates")
-    parser.add_argument("--headless", action="store_true", help="Use refresh token auth")
+    parser = argparse.ArgumentParser(
+        description="Benchmark ZingMP3-Spotify sync (simulates GitHub Actions workflows)"
+    )
+    parser.add_argument(
+        "--chart",
+        type=str,
+        required=True,
+        choices=list(CHARTS.keys()) + ["all"],
+        help="Chart to benchmark (or 'all' for all charts)",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Clear all caches before running (worst-case benchmark)",
+    )
+    parser.add_argument(
+        "--no-playlist",
+        action="store_true",
+        help="Skip playlist creation/update (faster testing)",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Use headless Spotify auth (requires SPOTIFY_REFRESH_TOKEN)",
+    )
     args = parser.parse_args()
 
     if args.clear_cache:
         print("Clearing all caches...")
         clear_all_caches()
+        print("Caches cleared!")
 
-    charts = list(CHARTS.keys()) if args.chart == "all" else [args.chart]
-    results, start = [], time.time()
+    if args.chart == "all":
+        charts_to_run = list(CHARTS.keys())
+    else:
+        charts_to_run = [args.chart]
 
-    for key in charts:
-        results.append(run_benchmark(key, args.no_playlist, args.headless))
+    all_results = []
+    total_start = time.time()
 
-    if len(results) > 1:
-        total_time = time.time() - start
-        print(f"\n{'═' * 75}\nOVERALL SUMMARY\n{'═' * 75}")
-        print(f"{'Chart':<30} {'Songs':>8} {'Found':>8} {'Cached':>8} {'Time':>10}\n{'─' * 75}")
-        for r in results:
-            print(f"{r.name[:30]:<30} {r.total:>8} {r.found:>8} {r.cached:>8} {r.time:>10.2f}s")
+    for chart_key in charts_to_run:
+        result = run_benchmark(
+            chart_key,
+            no_playlist=args.no_playlist,
+            headless=args.headless,
+        )
+        all_results.append(result)
+
+    total_time = time.time() - total_start
+
+    # Print overall summary if multiple charts
+    if len(all_results) > 1:
+        print(f"\n{'═' * 75}")
+        print("OVERALL SUMMARY")
+        print(f"{'═' * 75}")
+        print(f"{'Chart':<30} {'Songs':>8} {'Found':>8} {'Cached':>8} {'Time':>10}")
         print(f"{'─' * 75}")
-        print(f"{'TOTAL':<30} {sum(r.total for r in results):>8} {sum(r.found for r in results):>8} "
-              f"{sum(r.cached for r in results):>8} {total_time:>10.2f}s\n{'═' * 75}")
+        for r in all_results:
+            print(
+                f"{r.chart_name[:30]:<30} {r.total_songs:>8} {r.songs_found:>8} "
+                f"{r.cache_hits:>8} {r.total_time:>10.2f}s"
+            )
+        print(f"{'─' * 75}")
+        total_songs = sum(r.total_songs for r in all_results)
+        total_found = sum(r.songs_found for r in all_results)
+        total_cached = sum(r.cache_hits for r in all_results)
+        print(f"{'TOTAL':<30} {total_songs:>8} {total_found:>8} {total_cached:>8} {total_time:>10.2f}s")
+        print(f"{'═' * 75}")
 
 
 if __name__ == "__main__":

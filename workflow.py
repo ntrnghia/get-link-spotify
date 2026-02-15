@@ -1,4 +1,7 @@
-"""Unified workflow for ZingMP3-Spotify sync."""
+"""
+Unified workflow for ZingMP3-Spotify sync.
+Shared logic between main.py CLI and bench.py benchmark tool.
+"""
 
 from pathlib import Path
 from typing import Callable
@@ -9,141 +12,339 @@ from cache import get_spotify_cache
 from config import PROJECT_ROOT, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
 from excel import write_excel
 from models import SyncOutput, SyncResult, SyncStats
-from spotify import (create_or_get_playlist, get_spotify_client, get_spotify_client_headless,
-                     get_spotify_client_with_auth, search_songs_concurrent, update_playlist)
-from zingmp3 import (fetch_weekly_chart_live, fetch_zingchart_direct, fetch_zingchart_live,
-                     is_weekly_chart_url, parse_chart_content, parse_chart_file)
+from spotify import (
+    create_or_get_playlist,
+    get_spotify_client,
+    get_spotify_client_headless,
+    get_spotify_client_with_auth,
+    search_songs_concurrent,
+    update_playlist,
+)
+from zingmp3 import (
+    fetch_weekly_chart_live,
+    fetch_zingchart_direct,
+    fetch_zingchart_live,
+    is_weekly_chart_url,
+    parse_chart_content,
+    parse_chart_file,
+)
 
 
-def _get_client(needs_playlist: bool, headless: bool) -> spotipy.Spotify:
+def get_spotify_client_for_mode(
+    needs_playlist: bool = False, headless: bool = False
+) -> spotipy.Spotify:
+    """Get appropriate Spotify client based on mode.
+
+    Args:
+        needs_playlist: Whether playlist management is needed (requires user auth)
+        headless: Use refresh token auth (for CI/headless mode)
+
+    Returns:
+        Configured Spotify client
+    """
     if needs_playlist:
-        return get_spotify_client_headless() if headless else get_spotify_client_with_auth()
+        if headless:
+            return get_spotify_client_headless()
+        return get_spotify_client_with_auth()
     return get_spotify_client()
 
 
-def _fetch_chart(chart_url: str, mode: str, min_file_size: int, save_html: bool) -> list[dict] | None:
-    """Fetch songs from a ZingMP3 chart."""
+def fetch_chart_songs(
+    chart_url: str,
+    mode: str = "local",
+    min_file_size: int = 0,
+    save_html: bool = False,
+) -> list[dict] | None:
+    """Fetch songs from a ZingMP3 chart.
+
+    Args:
+        chart_url: URL of the chart to fetch
+        mode: "vpn" (direct), "live" (proxy), or "local" (saved file)
+        min_file_size: Minimum HTML size to consider valid
+        save_html: Save fetched HTML to chart_live.html
+
+    Returns:
+        List of song dicts or None if failed
+    """
     is_weekly = is_weekly_chart_url(chart_url)
-    html, songs = None, None
+    html_content = None
+    songs = None
 
     if mode == "vpn":
         if is_weekly:
-            print("\nWARNING: VPN mode doesn't work for weekly charts. Use 'live' mode.")
+            print("\nWARNING: VPN mode doesn't work for weekly charts (no JSON-LD).")
+            print("Please use 'live' mode for weekly charts.")
             return None
-        html = fetch_zingchart_direct(chart_url)
-        if not html:
+        html_content = fetch_zingchart_direct(chart_url)
+        if not html_content:
             print("\nFailed to fetch via VPN. Falling back to local...")
+
     elif mode == "live":
         if is_weekly:
-            return fetch_weekly_chart_live(chart_url)
-        html = fetch_zingchart_live(chart_url, min_size=min_file_size)
-        if not html:
-            print("\nFailed to fetch via proxies. Falling back to local...")
+            songs = fetch_weekly_chart_live(chart_url)
+            if not songs:
+                print("\nFailed to fetch weekly chart via API.")
+                return None
+        else:
+            html_content = fetch_zingchart_live(chart_url, min_size=min_file_size)
+            if not html_content:
+                print("\nFailed to fetch via proxies. Falling back to local...")
 
-    if html:
+    # Process HTML content or use songs from API
+    if songs:
+        return songs
+
+    if html_content:
         if save_html:
-            (PROJECT_ROOT / "chart_live.html").write_text(html, encoding="utf-8")
-            print(f"  Saved HTML to {PROJECT_ROOT / 'chart_live.html'}")
-        return parse_chart_content(html)
+            save_path = PROJECT_ROOT / "chart_live.html"
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"  Saved HTML to {save_path}")
+        return parse_chart_content(html_content)
 
-    # Fallback to local
-    for path in [PROJECT_ROOT / "chart_live.html", PROJECT_ROOT / "chart.html"]:
-        if path.exists():
-            return parse_chart_file(str(path))
+    # Fall back to local file
+    chart_live_file = PROJECT_ROOT / "chart_live.html"
+    html_file = PROJECT_ROOT / "chart.html"
+    if chart_live_file.exists():
+        return parse_chart_file(str(chart_live_file))
+    elif html_file.exists():
+        return parse_chart_file(str(html_file))
+
     return None
 
 
-def _normalize(value: float, min_v: float, max_v: float) -> float:
-    return (value - min_v) / (max_v - min_v) if max_v != min_v else 0.0
+def build_sync_results(
+    songs: list[dict],
+    spotify_results: list[dict | None],
+) -> tuple[list[SyncResult], list[str]]:
+    """Build SyncResult list from songs and Spotify results.
+
+    Args:
+        songs: List of ZingMP3 song dicts
+        spotify_results: List of Spotify result dicts (or None)
+
+    Returns:
+        Tuple of (results list, track URIs list)
+    """
+    results = []
+    track_uris = []
+
+    for song, spotify_result in zip(songs, spotify_results):
+        result = SyncResult.from_song_and_spotify(song, spotify_result)
+        results.append(result)
+        if result.track_uri:
+            track_uris.append(result.track_uri)
+
+    return results, track_uris
 
 
-def _sync_playlists(sp: spotipy.Spotify, results: list[SyncResult], uris: list[str],
-                    chart_url: str, playlist_name: str, sorted_name: str, trending_name: str) -> dict[str, str]:
-    """Sync results to Spotify playlists."""
-    urls = {}
-    if not uris:
-        return urls
+def sync_to_playlists(
+    sp: spotipy.Spotify,
+    results: list[SyncResult],
+    track_uris: list[str],
+    playlist_name: str,
+    chart_url: str = "",
+    sorted_playlist_name: str = "",
+    trending_playlist_name: str = "",
+    filtered_playlist_name: str = "",
+    filter_keywords: list[str] | None = None,
+) -> dict[str, str]:
+    """Sync results to Spotify playlists.
 
-    # Playlist configurations: (name, sort_fn, optional)
-    found = [r for r in results if r.found]
-    
-    def trending_sort(items):
-        if not items:
-            return items
-        ranks, pops = [r.rank for r in items], [r.popularity for r in items]
-        min_r, max_r, min_p, max_p = min(ranks), max(ranks), min(pops), max(pops)
-        return sorted(items, key=lambda r: _normalize(r.rank, min_r, max_r) + _normalize(r.popularity, min_p, max_p))
+    Args:
+        sp: Spotify client (with user auth)
+        results: List of SyncResult
+        track_uris: List of track URIs to add
+        playlist_name: Main playlist name
+        chart_url: Chart URL for playlist description
+        sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
+        trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
+        filtered_playlist_name: Optional playlist with songs filtered by keywords
+        filter_keywords: Keywords to filter songs by name (used with filtered_playlist_name)
 
-    configs = [
-        (playlist_name, lambda: uris, False),
-        (sorted_name, lambda: [r.track_uri for r in sorted(found, key=lambda x: x.popularity, reverse=True)], True),
-        (trending_name, lambda: [r.track_uri for r in trending_sort(found)], True),
-    ]
+    Returns:
+        Dict of playlist names to URLs
+    """
+    playlist_urls = {}
 
-    for name, get_uris, optional in configs:
-        if not name or (optional and not name):
-            continue
-        playlist_uris = get_uris()
-        if not playlist_uris:
-            continue
-        pid, is_new = create_or_get_playlist(sp, name, chart_url)
-        count = update_playlist(sp, pid, playlist_uris)
-        urls[name] = f"https://open.spotify.com/playlist/{pid}"
-        print(f"  {'Created' if is_new else 'Updated'} playlist '{name}' ({count} tracks): {urls[name]}")
+    if not track_uris:
+        return playlist_urls
 
-    return urls
+    # Main playlist
+    playlist_id, is_new = create_or_get_playlist(sp, playlist_name, chart_url)
+    action = "Created" if is_new else "Updated"
+    tracks_added = update_playlist(sp, playlist_id, track_uris)
+    url = f"https://open.spotify.com/playlist/{playlist_id}"
+    print(f"  {action} playlist '{playlist_name}' ({tracks_added} tracks)")
+    print(f"    {url}")
+    playlist_urls[playlist_name] = url
+
+    # Sorted by popularity playlist (optional) - most popular first
+    if sorted_playlist_name:
+        sorted_results = sorted(
+            [r for r in results if r.found],
+            key=lambda x: x.popularity,
+            reverse=True,
+        )
+        sorted_uris = [r.track_uri for r in sorted_results]
+
+        sorted_id, is_new = create_or_get_playlist(sp, sorted_playlist_name, chart_url)
+        action = "Created" if is_new else "Updated"
+        update_playlist(sp, sorted_id, sorted_uris)
+        url = f"https://open.spotify.com/playlist/{sorted_id}"
+        print(f"  {action} sorted playlist '{sorted_playlist_name}'")
+        print(f"    {url}")
+        playlist_urls[sorted_playlist_name] = url
+
+    # Trending playlist (optional) - sorted by normalized rank + popularity (low = new & trending)
+    if trending_playlist_name:
+        found_results = [r for r in results if r.found]
+        
+        if found_results:
+            # Calculate min/max for normalization
+            ranks = [r.rank for r in found_results]
+            pops = [r.popularity for r in found_results]
+            min_rank, max_rank = min(ranks), max(ranks)
+            min_pop, max_pop = min(pops), max(pops)
+            
+            # Normalize function (handles edge case where min == max)
+            def normalize(value: float, min_val: float, max_val: float) -> float:
+                if max_val == min_val:
+                    return 0.0
+                return (value - min_val) / (max_val - min_val)
+            
+            # Sort by normalized rank + normalized popularity (ascending)
+            trending_results = sorted(
+                found_results,
+                key=lambda r: (
+                    normalize(r.rank, min_rank, max_rank) +
+                    normalize(r.popularity, min_pop, max_pop)
+                ),
+            )
+            trending_uris = [r.track_uri for r in trending_results]
+
+            trending_id, is_new = create_or_get_playlist(sp, trending_playlist_name, chart_url)
+            action = "Created" if is_new else "Updated"
+            update_playlist(sp, trending_id, trending_uris)
+            url = f"https://open.spotify.com/playlist/{trending_id}"
+            print(f"  {action} trending playlist '{trending_playlist_name}'")
+            print(f"    {url}")
+            playlist_urls[trending_playlist_name] = url
+
+    # Filtered playlist (optional) - songs matching keywords, in original chart order
+    if filtered_playlist_name and filter_keywords:
+        keywords_lower = [kw.lower() for kw in filter_keywords]
+        filtered_results = [
+            r for r in results
+            if r.found and any(kw in r.song_name.lower() for kw in keywords_lower)
+        ]
+        filtered_uris = [r.track_uri for r in filtered_results]
+
+        if filtered_uris:
+            filtered_id, is_new = create_or_get_playlist(sp, filtered_playlist_name, chart_url)
+            action = "Created" if is_new else "Updated"
+            update_playlist(sp, filtered_id, filtered_uris)
+            url = f"https://open.spotify.com/playlist/{filtered_id}"
+            print(f"  {action} filtered playlist '{filtered_playlist_name}' ({len(filtered_uris)} tracks, keywords: {', '.join(filter_keywords)})")
+            print(f"    {url}")
+            playlist_urls[filtered_playlist_name] = url
+        else:
+            print(f"  Skipped filtered playlist '{filtered_playlist_name}' (no songs matched keywords: {', '.join(filter_keywords)})")
+
+    return playlist_urls
 
 
 def run_chart_sync(
-    chart_url: str, mode: str = "local", output_file: str | None = None,
-    playlist_name: str | None = None, sorted_playlist_name: str = "",
-    trending_playlist_name: str = "", headless: bool = False,
-    min_file_size: int = 0, save_html: bool = False,
+    chart_url: str,
+    mode: str = "local",
+    output_file: str | None = None,
+    playlist_name: str | None = None,
+    sorted_playlist_name: str = "",
+    trending_playlist_name: str = "",
+    filtered_playlist_name: str = "",
+    filter_keywords: list[str] | None = None,
+    headless: bool = False,
+    min_file_size: int = 0,
+    save_html: bool = False,
     progress_callback: Callable[[int, dict, dict | None, bool], None] | None = None,
 ) -> SyncOutput:
-    """Run complete chart sync workflow."""
+    """Run complete chart sync workflow.
+
+    Args:
+        chart_url: URL of the ZingMP3 chart
+        mode: Fetch mode - "vpn", "live", or "local"
+        output_file: Path to output Excel file (None to skip)
+        playlist_name: Spotify playlist name (None to skip playlist)
+        sorted_playlist_name: Optional second playlist sorted by popularity (high to low)
+        trending_playlist_name: Optional third playlist sorted by rank + popularity (new & trending)
+        filtered_playlist_name: Optional playlist with songs filtered by keywords
+        filter_keywords: Keywords to filter songs by name (used with filtered_playlist_name)
+        headless: Use headless Spotify auth
+        min_file_size: Minimum HTML size to consider valid
+        save_html: Save fetched HTML to file
+        progress_callback: Optional callback(index, song, result, cached)
+
+    Returns:
+        SyncOutput with results, stats, and track URIs
+    """
     output = SyncOutput()
 
+    # Check credentials
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
         print("\nERROR: Spotify credentials not found!")
-        print("Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env")
+        print("Set environment variables or create .env file with:")
+        print("  SPOTIFY_CLIENT_ID=your_client_id")
+        print("  SPOTIFY_CLIENT_SECRET=your_client_secret")
         return output
 
-    songs = _fetch_chart(chart_url, mode, min_file_size, save_html)
+    # Fetch chart
+    songs = fetch_chart_songs(chart_url, mode, min_file_size, save_html)
     if not songs:
         print("ERROR: Failed to get chart data")
         return output
 
     output.stats.total_songs = len(songs)
-    sp = _get_client(bool(playlist_name), headless)
 
-    def stats_cb(idx: int, song: dict, result: dict | None, cached: bool) -> None:
+    # Initialize Spotify
+    sp = get_spotify_client_for_mode(
+        needs_playlist=bool(playlist_name),
+        headless=headless,
+    )
+
+    # Track cache stats via callback wrapper
+    def stats_callback(index: int, song: dict, result: dict | None, cached: bool) -> None:
         if cached:
             output.stats.cache_hits += 1
         else:
             output.stats.cache_misses += 1
         if progress_callback:
-            progress_callback(idx, song, result, cached)
+            progress_callback(index, song, result, cached)
 
-    spotify_results = search_songs_concurrent(sp, songs, stats_cb)
+    # Search Spotify
+    spotify_results = search_songs_concurrent(sp, songs, stats_callback)
 
     # Build results
-    for song, sp_result in zip(songs, spotify_results):
-        result = SyncResult.from_song_and_spotify(song, sp_result)
-        output.results.append(result)
-        if result.track_uri:
-            output.track_uris.append(result.track_uri)
+    output.results, output.track_uris = build_sync_results(songs, spotify_results)
     output.stats.songs_found = sum(1 for r in output.results if r.found)
 
-    # Export
+    # Export to Excel
     if output_file:
-        path = PROJECT_ROOT / output_file if not Path(output_file).is_absolute() else Path(output_file)
-        write_excel([r.to_dict() for r in output.results], str(path))
-        print(f"  Saved to {path}")
+        output_path = PROJECT_ROOT / output_file if not Path(output_file).is_absolute() else Path(output_file)
+        write_excel([r.to_dict() for r in output.results], str(output_path))
+        print(f"  Saved to {output_path}")
 
-    # Playlists
+    # Sync to playlists
     if playlist_name and output.track_uris:
-        _sync_playlists(sp, output.results, output.track_uris, chart_url,
-                       playlist_name, sorted_playlist_name, trending_playlist_name)
+        sync_to_playlists(
+            sp,
+            output.results,
+            output.track_uris,
+            playlist_name,
+            chart_url,
+            sorted_playlist_name,
+            trending_playlist_name,
+            filtered_playlist_name,
+            filter_keywords,
+        )
 
     return output

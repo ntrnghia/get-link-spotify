@@ -36,6 +36,16 @@ on:
         required: false
         type: string
         default: ''
+      filtered_playlist_name:
+        description: 'Name of playlist with songs filtered by keywords (optional)'
+        required: false
+        type: string
+        default: ''
+      filter_keywords:
+        description: 'Comma-separated keywords to filter songs by name (used with filtered_playlist_name)'
+        required: false
+        type: string
+        default: ''
     secrets:
       SPOTIFY_CLIENT_ID:
         required: true
@@ -87,7 +97,9 @@ jobs:
             --output-file "${{ inputs.output_file }}" \
             --min-file-size ${{ inputs.min_file_size }} \
             ${{ inputs.sorted_playlist_name && format('--sorted-playlist-name "{0}"', inputs.sorted_playlist_name) || '' }} \
-            ${{ inputs.trending_playlist_name && format('--trending-playlist-name "{0}"', inputs.trending_playlist_name) || '' }}
+            ${{ inputs.trending_playlist_name && format('--trending-playlist-name "{0}"', inputs.trending_playlist_name) || '' }} \
+            ${{ inputs.filtered_playlist_name && format('--filtered-playlist-name "{0}"', inputs.filtered_playlist_name) || '' }} \
+            ${{ inputs.filter_keywords && format('--filter-keywords "{0}"', inputs.filter_keywords) || '' }}
 
       - name: Upload Excel artifact
         uses: actions/upload-artifact@v4
