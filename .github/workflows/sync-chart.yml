@@ -51,18 +51,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@main
         with:
           ref: test
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@main
         with:
           python-version: '3.x'
           cache: 'pip'
 
       - name: Restore caches
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@main
         with:
           path: |
             .spotify_cache.json
@@ -92,7 +92,7 @@ jobs:
             ${{ inputs.trending_playlist_name && format('--trending-playlist-name "{0}"', inputs.trending_playlist_name) || '' }}
 
       - name: Upload Excel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@main
         if: always()
         with:
           name: ${{ inputs.output_file }}
@@ -108,7 +108,7 @@ jobs:
           gh cache delete "app-cache-${{ hashFiles('requirements.txt') }}" --repo ${{ github.repository }} || true
 
       - name: Save caches
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@main
         if: always()
         with:
           path: |
