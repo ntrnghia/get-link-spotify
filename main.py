@@ -88,7 +88,7 @@ def main() -> None:
         "--filter-keywords",
         type=str,
         default="",
-        help='Comma-separated keywords to filter songs by name (e.g. "Tết,Xuân,Năm nay")',
+        help='Comma-separated keywords to filter songs by name (e.g. "Remix")',
     )
     args = parser.parse_args()
 
