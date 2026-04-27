@@ -37,12 +37,12 @@ on:
         type: string
         default: ''
       filtered_playlist_name:
-        description: 'Name of playlist with songs filtered by keywords (optional)'
+        description: 'Name(s) of filtered playlists. Separate multiple playlists with ";" (e.g. "Top Remix;Top OST")'
         required: false
         type: string
         default: ''
       filter_keywords:
-        description: 'Comma-separated keywords to filter songs by name (used with filtered_playlist_name)'
+        description: 'Keyword groups paired with filtered_playlist_name. "," within a group (OR), ";" between groups (e.g. "Remix;OST")'
         required: false
         type: string
         default: ''

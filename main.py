@@ -9,7 +9,46 @@ import argparse
 import sys
 
 from config import PROJECT_ROOT, ZINGCHART_URL
-from workflow import run_chart_sync
+from workflow import FilteredPlaylist, run_chart_sync
+
+
+def parse_filtered_playlists(
+    names_str: str, keywords_str: str
+) -> list[FilteredPlaylist]:
+    """Parse paired playlist names and keyword groups into (name, keywords) pairs.
+
+    Multiple playlists are separated by ';'.
+    Within one keyword group, individual keywords are separated by ',' (OR match).
+
+    Examples:
+        >>> parse_filtered_playlists("Top Remix", "Remix")
+        [('Top Remix', ['Remix'])]
+        >>> parse_filtered_playlists("Top Remix;Top OST", "Remix;OST")
+        [('Top Remix', ['Remix']), ('Top OST', ['OST'])]
+        >>> parse_filtered_playlists("Top Mix", "Remix,Mix")
+        [('Top Mix', ['Remix', 'Mix'])]
+        >>> parse_filtered_playlists("", "")
+        []
+
+    Args:
+        names_str: Semicolon-separated playlist names
+        keywords_str: Semicolon-separated keyword groups (each group is comma-separated)
+
+    Returns:
+        List of (playlist_name, keywords) pairs. Pairs missing either part are dropped.
+    """
+    if not names_str or not keywords_str:
+        return []
+
+    names = [n.strip() for n in names_str.split(";") if n.strip()]
+    keyword_groups = keywords_str.split(";")
+
+    pairs: list[FilteredPlaylist] = []
+    for name, group in zip(names, keyword_groups):
+        keywords = [k.strip() for k in group.split(",") if k.strip()]
+        if keywords:
+            pairs.append((name, keywords))
+    return pairs
 
 
 def main() -> None:
@@ -82,18 +121,31 @@ def main() -> None:
         "--filtered-playlist-name",
         type=str,
         default="",
-        help="Create playlist with songs filtered by keywords (optional)",
+        help=(
+            "Create one or more playlists with songs filtered by keywords. "
+            'Use ";" to separate multiple playlist names '
+            '(e.g. "ZingMP3 Top Remix;ZingMP3 Top OST").'
+        ),
     )
     parser.add_argument(
         "--filter-keywords",
         type=str,
         default="",
-        help='Comma-separated keywords to filter songs by name (e.g. "Remix")',
+        help=(
+            "Keyword groups paired with --filtered-playlist-name. "
+            'Use "," within a group for OR match, ";" between groups '
+            '(e.g. "Remix;OST" or "Remix,Mix;OST,Soundtrack").'
+        ),
     )
     args = parser.parse_args()
 
     # Determine mode
     mode = "vpn" if args.vpn else ("live" if args.live else "local")
+
+    # Parse filtered playlists (supports multiple via ';' separator)
+    filtered_playlists = parse_filtered_playlists(
+        args.filtered_playlist_name, args.filter_keywords
+    )
 
     # Print header
     print("=" * 60)
@@ -109,8 +161,8 @@ def main() -> None:
         print(f"Playlist: Will create/update '{args.playlist_name}'")
     if args.headless:
         print("Auth: Headless mode (using refresh token)")
-    if args.filter_keywords:
-        print(f"Filter: songs matching '{args.filter_keywords}'")
+    for fp_name, fp_keywords in filtered_playlists:
+        print(f"Filter: '{fp_name}' <- songs matching {fp_keywords}")
     print(f"Output: {PROJECT_ROOT / args.output_file}")
     print("=" * 60)
 
@@ -125,12 +177,6 @@ def main() -> None:
         else:
             print(f"  [{pos:3d}] {name[:30]:30s} NOT FOUND{cache_tag}")
 
-    # Parse filter keywords
-    filter_keywords = (
-        [k.strip() for k in args.filter_keywords.split(",") if k.strip()]
-        if args.filter_keywords
-        else []
-    )
     # Run sync
     print("\nFetching chart and syncing to Spotify...")
     output = run_chart_sync(
@@ -140,8 +186,7 @@ def main() -> None:
         playlist_name=args.playlist_name if args.playlist else None,
         sorted_playlist_name=args.sorted_playlist_name,
         trending_playlist_name=args.trending_playlist_name,
-        filtered_playlist_name=args.filtered_playlist_name,
-        filter_keywords=filter_keywords,
+        filtered_playlists=filtered_playlists,
         headless=args.headless,
         min_file_size=args.min_file_size,
         save_html=args.save_html,
