@@ -104,8 +104,10 @@ CHARTS = {
         "playlist": "ZingMP3 Top 100",
         "sorted_playlist": "ZingMP3 Top 100 (sorted by Spotify popularity)",
         "trending_playlist": "ZingMP3 Top 100 (new & trending)",
-        "filtered_playlist": "ZingMP3 Top Remix",
-        "filter_keywords": ["Remix"],
+        "filtered_playlists": [
+            ("ZingMP3 Top Remix", ["Remix"]),
+            ("ZingMP3 Top OST", ["OST"]),
+        ],
         "output_file": "zingchart_top_100.xlsx",
         "min_file_size": 100000,
         "mode": "live",
