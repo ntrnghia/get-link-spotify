@@ -62,8 +62,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
-        with:
-          ref: test
 
       - name: Set up Python
         uses: actions/setup-python@main
