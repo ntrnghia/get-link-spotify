@@ -19,14 +19,16 @@ Automatically sync ZingMP3 charts to Spotify playlists.
 
 | Playlist | Songs | Schedule | Link |
 |----------|-------|----------|------|
-| ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/2Ntc48qdwn8rlXiQqJbwLd) |
-| ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/5lYHZVcQmu0sshlR5qarpv) |
-| ZingMP3 Top 100 (new & trending) | 100 | Every hour | [Open](https://open.spotify.com/playlist/7o2ONM6WfOd60T5WkKaaJn) |
+| ZingMP3 Top 100 | 100 | Every hour | [Open](https://open.spotify.com/playlist/2Kh0PR1vPrl3QKhfGpJKaz) |
+| ZingMP3 Top 100 (sorted by Spotify popularity) | 100 | Every hour | [Open](https://open.spotify.com/playlist/0HmB6vhYHwbAjLXXRtfBB8) |
+| ZingMP3 Top 100 (new & trending) | 100 | Every hour | [Open](https://open.spotify.com/playlist/7hteisCqci9qOcNPnZ68Ym) |
+| ZingMP3 Top Remix | ~10 | Every hour | [Open](https://open.spotify.com/playlist/4wjkGqpDIQjVsviE2T2IHV) |
+| ZingMP3 Top OST | ~5 | Every hour | [Open](https://open.spotify.com/playlist/4hWsoL4ygfZcYgXG0XbrfH) |
 | ZingMP3 Weekly VN | 40 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/3bvdEpWQUuMSiEWB3bw1ZD) |
 | ZingMP3 Weekly US-UK | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4NKRGmHpU5gbMM6W0raGZR) |
 | ZingMP3 Weekly K-POP | 20 | Every Monday 0:00 VN | [Open](https://open.spotify.com/playlist/4sbme4bfHlU02n3lhCgzhQ) |
 
-> **New & Trending**: Songs sorted by `normalized_rank + normalized_popularity` (ascending). Both values are scaled 0-1 based on actual min/max. Lower score = high chart position + low Spotify popularity = truly new/trending songs.
+> **New & Trending**: Songs sorted by `normalized_rank + normalized_age_days` (ascending). Both values are scaled 0-1 based on actual min/max. Lower score = high chart position + recently released = truly new/trending songs.
 
 ## Supported Charts
 
