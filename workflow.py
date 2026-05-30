@@ -166,7 +166,7 @@ def _sync_filtered_playlist(
     keywords_lower = [kw.lower() for kw in keywords]
     matches = [
         r for r in results
-        if r.found and any(kw in r.song_name.lower() for kw in keywords_lower)
+        if r.found and any(kw in r.spotify_name.lower() for kw in keywords_lower)
     ]
 
     if not matches:
