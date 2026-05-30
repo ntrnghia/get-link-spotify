@@ -26,6 +26,7 @@ class SyncResult:
     popularity: int = 0
     match_score: float = 0.0
     track_uri: str = ""
+    release_date: str = ""
 
     @property
     def found(self) -> bool:
@@ -48,6 +49,7 @@ class SyncResult:
             "popularity": self.popularity,
             "match_score": self.match_score,
             "track_uri": self.track_uri,
+            "release_date": self.release_date,
         }
 
     @classmethod
@@ -72,6 +74,7 @@ class SyncResult:
             result.popularity = spotify_result["popularity"]
             result.match_score = spotify_result["match_score"]
             result.track_uri = spotify_result["track_uri"]
+            result.release_date = spotify_result.get("release_date", "")
 
         return result
 

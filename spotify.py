@@ -234,6 +234,7 @@ def search_spotify_single(sp: spotipy.Spotify, song: dict) -> dict | None:
                         "popularity": best_track.get("popularity", 0),
                         "track_uri": best_track["uri"],
                         "match_score": best_score,
+                        "release_date": best_track["album"].get("release_date", ""),
                     }
         except Exception as e:
             print(f"  Search error for '{query}': {e}")

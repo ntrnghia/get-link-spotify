@@ -83,13 +83,13 @@ API_HEADERS = {
 # =============================================================================
 # EXCEL FORMATTING
 # =============================================================================
-EXCEL_COLUMN_WIDTHS = [6, 30, 25, 8, 45, 30, 25, 25, 8, 45, 10, 10]
+EXCEL_COLUMN_WIDTHS = [6, 30, 25, 8, 45, 30, 25, 25, 8, 45, 10, 12, 10]
 EXCEL_HEADERS = [
     # ZingMP3 data (5 columns)
     "Rank", "Song Name", "Artists", "Duration", "ZingMP3 Link",
-    # Spotify data (6 columns)
+    # Spotify data (7 columns)
     "Song Name (Spotify)", "Artists (Spotify)", "Album (Spotify)",
-    "Duration (Spotify)", "Spotify Link", "Popularity",
+    "Duration (Spotify)", "Spotify Link", "Popularity", "Release Date",
     # Match result (1 column)
     "Match %",
 ]

@@ -40,3 +40,4 @@ weekly_files/
 # OS
 .DS_Store
 Thumbs.db
+debug/

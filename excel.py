@@ -41,7 +41,7 @@ def write_excel(results: list[dict], output_file: str) -> None:
         # Color based on column group
         if col <= 5:
             cell.fill = zing_fill
-        elif col <= 11:
+        elif col <= 12:
             cell.fill = spotify_fill
         else:
             cell.fill = match_fill
@@ -62,12 +62,13 @@ def write_excel(results: list[dict], output_file: str) -> None:
         ws.cell(row=row_idx, column=9, value=r.get("spotify_duration", ""))
         ws.cell(row=row_idx, column=10, value=r.get("spotify_url", ""))
         ws.cell(row=row_idx, column=11, value=r.get("popularity", 0))
+        ws.cell(row=row_idx, column=12, value=r.get("release_date", ""))
 
         # Match column (as percentage)
         match_score = r.get("match_score", 0)
         ws.cell(
             row=row_idx,
-            column=12,
+            column=13,
             value=f"{match_score * 100:.0f}%" if match_score else "",
         )
 

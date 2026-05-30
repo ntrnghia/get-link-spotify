@@ -4,6 +4,7 @@ Shared logic between main.py CLI and bench.py benchmark tool.
 """
 
 from pathlib import Path
+from datetime import date
 from typing import Callable
 
 import spotipy
@@ -244,16 +245,33 @@ def sync_to_playlists(
         print(f"    {url}")
         playlist_urls[sorted_playlist_name] = url
 
-    # Trending playlist (optional) - sorted by normalized rank + popularity (low = new & trending)
+    # Trending playlist (optional) - sorted by normalized rank + release age (low = new & trending)
     if trending_playlist_name:
         found_results = [r for r in results if r.found]
 
         if found_results:
+            today = date.today()
+
+            def _parse_release_date(date_str: str) -> date:
+                """Parse release_date (day/month/year precision) to date."""
+                if not date_str:
+                    return date(2000, 1, 1)  # Unknown = very old
+                parts = date_str.split("-")
+                try:
+                    if len(parts) == 3:
+                        return date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    elif len(parts) == 2:
+                        return date(int(parts[0]), int(parts[1]), 1)
+                    else:
+                        return date(int(parts[0]), 1, 1)
+                except (ValueError, IndexError):
+                    return date(2000, 1, 1)
+
             # Calculate min/max for normalization
             ranks = [r.rank for r in found_results]
-            pops = [r.popularity for r in found_results]
+            ages = [(today - _parse_release_date(r.release_date)).days for r in found_results]
             min_rank, max_rank = min(ranks), max(ranks)
-            min_pop, max_pop = min(pops), max(pops)
+            min_age, max_age = min(ages), max(ages)
 
             # Normalize function (handles edge case where min == max)
             def normalize(value: float, min_val: float, max_val: float) -> float:
@@ -261,12 +279,12 @@ def sync_to_playlists(
                     return 0.0
                 return (value - min_val) / (max_val - min_val)
 
-            # Sort by normalized rank + normalized popularity (ascending)
+            # Sort by normalized rank + normalized age (ascending = newest & highest ranked first)
             trending_results = sorted(
                 found_results,
                 key=lambda r: (
                     normalize(r.rank, min_rank, max_rank) +
-                    normalize(r.popularity, min_pop, max_pop)
+                    normalize((today - _parse_release_date(r.release_date)).days, min_age, max_age)
                 ),
             )
             trending_uris = [r.track_uri for r in trending_results]
